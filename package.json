@@ -1,0 +1,61 @@
+{
+  "name": "clickup-mcp-server",
+  "version": "2.0.0",
+  "description": "A Model Context Protocol (MCP) server that provides a standardized interface for AI assistants to interact with the ClickUp API",
+  "main": "build/index.js",
+  "bin": {
+    "clickup-mcp-server": "./build/index.js",
+    "clickup-mcp-receiver": "./build/webhook-receiver/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --esm src/index.ts",
+    "start": "node build/index.js",
+    "test": "echo \"No tests specified yet\" && exit 0",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepare": "npm run build",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nsxdavid/clickup-mcp-server.git"
+  },
+  "keywords": [
+    "clickup",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "assistant",
+    "api",
+    "server"
+  ],
+  "author": "David Whatley (https://davidwhatley.com)",
+  "contributors": [
+    "ClickUp MCP Server Contributors"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nsxdavid/clickup-mcp-server/issues"
+  },
+  "homepage": "https://github.com/nsxdavid/clickup-mcp-server#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "axios": "^1.6.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.26",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
