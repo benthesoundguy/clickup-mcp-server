@@ -50,6 +50,14 @@ class ClickUpServer {
       process.exit(0);
     });
 
+    // Prevent process crashes from unhandled errors
+    process.on('unhandledRejection', (reason) => {
+      console.error('[ClickUpServer] Unhandled rejection:', reason);
+    });
+    process.on('uncaughtException', (error) => {
+      console.error('[ClickUpServer] Uncaught exception:', error);
+    });
+
     // Set up tools and resources
     this.setupTools();
     this.setupResources();
