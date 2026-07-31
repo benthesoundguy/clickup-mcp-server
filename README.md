@@ -1,11 +1,6 @@
 # ClickUp MCP Server
 
 <p align="center">
-  <img src="assets/images/clickupserverlogo.png" width="256" alt="ClickUp MCP Server Logo" />
-</p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/clickup-mcp-server"><img src="https://img.shields.io/npm/v/clickup-mcp-server.svg" alt="npm version"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen" alt="Node.js Version"></a>
   <a href="https://github.com/modelcontextprotocol/typescript-sdk"><img src="https://img.shields.io/badge/MCP%20SDK-1.6.1-orange" alt="MCP SDK"></a>
@@ -36,13 +31,18 @@ The result is **87 tools** covering what would be **173 separate operations** �
 - **Consistent `domain_verb` naming** — `tasks_create`, `lists_search`, `docs_get`. No `clickup_` prefix, no scattered `verb_noun` conventions
 - **Project intelligence** — 8 built-in analysis reports computed from live data (health score, velocity, bottlenecks, workload, risk, sprint readiness, dependency chains, time reports)
 - **Webhook receiver** — standalone HTTP server with HMAC-256 validation for real-time event processing
-- **No rate limits** — personal API key auth, no daily cap
+- **Rate-limit aware** — automatic retry with backoff on ClickUp's per-token rate limits (~100 req/min on most plans)
 - **MIT licensed** — all source included, no premium tiers
 
 ## Quick Start
 
+This server is distributed via GitHub (not npm):
+
 ```bash
-npm install clickup-mcp-server
+git clone https://github.com/benthesoundguy/clickup-mcp-server
+cd clickup-mcp-server
+npm install
+npm run build
 ```
 
 Add to your MCP client configuration:
@@ -51,8 +51,8 @@ Add to your MCP client configuration:
 {
   "mcpServers": {
     "clickup": {
-      "command": "npx",
-      "args": ["-y", "clickup-mcp-server"],
+      "command": "node",
+      "args": ["/path/to/clickup-mcp-server/build/index.js"],
       "env": {
         "CLICKUP_API_TOKEN": "YOUR_API_TOKEN"
       }

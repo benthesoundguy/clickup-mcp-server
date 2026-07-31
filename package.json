@@ -11,16 +11,15 @@
     "build": "tsc",
     "dev": "ts-node --esm src/index.ts",
     "start": "node build/index.js",
-    "test": "echo \"No tests specified yet\" && exit 0",
+    "test": "npm run build && node --test test/",
+    "smoke": "npm run build && node test/smoke.mjs",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "prepare": "npm run build",
-    "version": "npm run format && git add -A src",
-    "postversion": "git push && git push --tags"
+    "prepare": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nsxdavid/clickup-mcp-server.git"
+    "url": "git+https://github.com/benthesoundguy/clickup-mcp-server.git"
   },
   "keywords": [
     "clickup",
@@ -31,15 +30,16 @@
     "api",
     "server"
   ],
-  "author": "David Whatley (https://davidwhatley.com)",
+  "author": "benthesoundguy",
   "contributors": [
+    "David Whatley (https://davidwhatley.com) — original clickup-mcp-server author",
     "ClickUp MCP Server Contributors"
   ],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/nsxdavid/clickup-mcp-server/issues"
+    "url": "https://github.com/benthesoundguy/clickup-mcp-server/issues"
   },
-  "homepage": "https://github.com/nsxdavid/clickup-mcp-server#readme",
+  "homepage": "https://github.com/benthesoundguy/clickup-mcp-server#readme",
   "engines": {
     "node": ">=18.0.0"
   },
