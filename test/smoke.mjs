@@ -98,6 +98,23 @@ async function step(name, fn) {
   }
 }
 
+// ClickUp's v3 (experimental) surfaces throw transient 500s. The client
+// deliberately never retries POSTs (double-send risk), so flaky v3 creates
+// get a bounded retry here in the harness where a duplicate is harmless.
+async function retry500(fn, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (e?.status !== 500) throw e;
+      await pause(1500);
+    }
+  }
+  throw lastErr;
+}
+
 const STAMP = Date.now().toString(36);
 const SANDBOX = `MCP-Smoke-${STAMP}`;
 
@@ -313,20 +330,8 @@ try {
     // ── Docs (v3) ──────────────────────────────────────────────────────
     console.log('docs');
     doc = await step('docs create (in list)', async () => {
-      // ClickUp's v3 docs API throws transient 500s; the client deliberately
-      // never retries POSTs, so retry here in the harness (bounded).
-      let lastErr;
-      for (let i = 0; i < 3; i++) {
-        try {
-          const r = await docs.createDocInList(TEAM, list.id, `smoke-doc-${STAMP}`);
-          return r.doc ?? r;
-        } catch (e) {
-          lastErr = e;
-          if (e?.status !== 500) throw e;
-          await pause(1500);
-        }
-      }
-      throw lastErr;
+      const r = await retry500(() => docs.createDocInList(TEAM, list.id, `smoke-doc-${STAMP}`));
+      return r.doc ?? r;
     });
     if (doc?.id) {
       await step('docs pages_list', () => docs.getDocPages(TEAM, doc.id));
@@ -399,7 +404,7 @@ try {
   console.log('chat (v3)');
   await step('channels list', () => chat.getChannels(TEAM));
   channel = await step('channels create', async () => {
-    const r = await chat.createChannel(TEAM, { name: `mcp-smoke-${STAMP}` });
+    const r = await retry500(() => chat.createChannel(TEAM, { name: `mcp-smoke-${STAMP}` }));
     return r.data ?? r;
   });
   if (channel?.id) {
@@ -408,14 +413,14 @@ try {
     await step('channels update (topic)', () => chat.updateChannel(TEAM, channel.id, { topic: 'smoke topic' }));
     await step('channels_members list', () => chat.getChannelMembers(TEAM, channel.id));
     const msg = await step('messages send', async () => {
-      const r = await chat.sendMessage(TEAM, channel.id, { content: 'smoke message' });
+      const r = await retry500(() => chat.sendMessage(TEAM, channel.id, { content: 'smoke message' }));
       return r.data ?? r;
     });
     await step('messages list', () => chat.getChannelMessages(TEAM, channel.id, { limit: 10 }));
     if (msg?.id) {
       await step('messages update', () => chat.updateMessage(TEAM, msg.id, 'smoke message (edited)'));
       const reply = await step('replies create', async () => {
-        const r = await chat.createReply(TEAM, msg.id, { content: 'smoke reply' });
+        const r = await retry500(() => chat.createReply(TEAM, msg.id, { content: 'smoke reply' }));
         return r.data ?? r;
       });
       void reply;
