@@ -36,12 +36,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Validate HMAC and parse
+  // Validate HMAC (over the RAW body bytes) and parse.
+  // When a secret is configured, a missing or invalid signature is always
+  // a rejection — omitting the header must not bypass validation.
   const signature = req.headers['x-signature'] as string | undefined;
-  const result = parseWebhookPayload(payload, SECRET, signature);
+  const result = parseWebhookPayload(payload, SECRET, signature, rawBody);
 
-  if (!result.valid && SECRET && signature) {
-    console.warn(`[WebhookReceiver] Rejected — invalid HMAC (event=${result.event}, type=${result.object_type})`);
+  if (SECRET && !result.hmac_validated) {
+    console.warn(`[WebhookReceiver] Rejected — ${signature ? 'invalid' : 'missing'} HMAC signature`);
     res.writeHead(401);
     res.end('Invalid signature');
     return;

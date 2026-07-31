@@ -24,13 +24,6 @@ import { setupReminderTools } from './tools/reminder-tools.js';
 import { setupSearchTools } from './tools/search-tools.js';
 import { setupStatusTools } from './tools/status-tools.js';
 import { setupProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
-import { setupTaskResources } from './resources/task-resources.js';
-import { setupDocResources } from './resources/doc-resources.js';
-import { setupChecklistResources } from './resources/checklist-resources.js';
-import { setupCommentResources } from './resources/comment-resources.js';
-import { setupSpaceResources } from './resources/space-resources.js';
-import { setupFolderResources } from './resources/folder-resources.js';
-import { setupListResources } from './resources/list-resources.js';
 
 // Environment variables are passed to the server through the MCP settings file
 // See mcp-settings-example.json for an example
@@ -58,9 +51,8 @@ class ClickUpServer {
       console.error('[ClickUpServer] Uncaught exception:', error);
     });
 
-    // Set up tools and resources
+    // Set up tools
     this.setupTools();
-    this.setupResources();
   }
 
   private setupTools() {
@@ -88,17 +80,6 @@ class ClickUpServer {
     setupSearchTools(this.server);
     setupStatusTools(this.server);
     setupProjectIntelligenceTools(this.server);
-  }
-
-  private setupResources() {
-    // Set up all resources
-    setupTaskResources(this.server);
-    setupDocResources(this.server);
-    setupChecklistResources(this.server);
-    setupCommentResources(this.server);
-    setupSpaceResources(this.server);
-    setupFolderResources(this.server);
-    setupListResources(this.server);
   }
 
   async run() {

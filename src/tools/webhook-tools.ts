@@ -18,9 +18,9 @@ export function setupWebhookTools(server: McpServer): void {
       events: z.array(z.string()).optional().describe('Event types to subscribe to (create/update)'),
       status: z.string().optional().describe('Webhook status (update)'),
       space_id: z.string().optional().describe('Optional space ID to scope the webhook (create)'),
-      payload: z.any().optional().describe('Required for process: the raw webhook payload from ClickUp (JSON object)'),
+      payload: z.any().optional().describe('Required for process: the webhook payload from ClickUp (JSON object, or the raw body string)'),
       signature: z.string().optional().describe('The X-Signature header value for HMAC validation (process)'),
-      secret: z.string().optional().describe('The webhook secret for HMAC validation (process)'),
+      secret: z.string().optional().describe('The webhook secret for HMAC validation (process). NOTE: HMAC can only be verified reliably when payload is the raw body string exactly as received.'),
     },
     async ({ action, workspace_id, webhook_id, endpoint, events, status, space_id, payload, signature, secret }) => {
       try {
@@ -47,7 +47,12 @@ export function setupWebhookTools(server: McpServer): void {
           }
           case 'process': {
             if (!payload) throw new Error('payload is required for process');
-            const result = parseWebhookPayload(payload, secret, signature);
+            // If the caller passed the raw body string, use it both for HMAC
+            // (which must run over the exact received bytes) and, parsed, for
+            // structure extraction.
+            const rawBody = typeof payload === 'string' ? payload : undefined;
+            const parsed = rawBody ? JSON.parse(rawBody) : payload;
+            const result = parseWebhookPayload(parsed, secret, signature, rawBody);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
         }
