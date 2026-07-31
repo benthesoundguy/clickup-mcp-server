@@ -1,7 +1,6 @@
 import { ClickUpClient } from './index.js';
-import axios from 'axios';
 
-// Updated Doc interface based on v3 API response
+// Doc interface based on v3 API response
 export interface Doc {
   id: string;
   name: string;
@@ -39,211 +38,92 @@ export class DocsClient {
   }
 
   /**
-   * Get docs from a specific workspace
-   * @param workspaceId The ID of the workspace to get docs from
-   * @param params Optional parameters for filtering docs
-   * @returns A list of docs
+   * Get docs from a specific workspace (v3 API)
    */
   async getDocsFromWorkspace(workspaceId: string, params?: GetDocsParams): Promise<{ docs: Doc[], next_cursor: string }> {
-    // Get the API token directly from the environment variable
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    
-    try {
-      const url = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs`;
-      
-      // Use the exact same headers that worked in the successful request
-      const headers = {
-        'Authorization': apiToken,
-        'Accept': 'application/json'
-      };
-      
-      const response = await axios.get(url, {
-        headers,
-        params
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error getting docs:', error);
-      throw error;
-    }
+    return this.client.get(`/workspaces/${workspaceId}/docs`, params as Record<string, unknown>, { api: 'v3' });
   }
 
-
   /**
-   * Get the pages of a doc
-   * @param workspaceId The ID of the workspace
-   * @param docId The ID of the doc
+   * Get the pages of a doc (v3 API)
    * @param contentFormat The format to return the content in (text/md or text/plain)
-   * @returns The pages of the doc
    */
   async getDocPages(workspaceId: string, docId: string, contentFormat: string = 'text/md'): Promise<any> {
-    // Get the API token directly from the environment variable
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    
-    try {
-      const url = `https://api.clickup.com/api/v3/workspaces/${workspaceId}/docs/${docId}/pages`;
-      
-      // Use the exact same parameters that worked in the successful request
-      const params = { 
-        max_page_depth: -1,
-        content_format: contentFormat
-      };
-      
-      // Use the exact same headers that worked in the successful request
-      const headers = {
-        'Authorization': apiToken,
-        'Accept': 'application/json'
-      };
-      
-      const response = await axios.get(url, {
-        headers,
-        params
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error getting doc pages:', error);
-      throw error;
-    }
+    return this.client.get(
+      `/workspaces/${workspaceId}/docs/${docId}/pages`,
+      { max_page_depth: -1, content_format: contentFormat },
+      { api: 'v3' }
+    );
   }
 
   /**
-   * Search for docs in a workspace
-   * @param workspaceId The ID of the workspace to search in
-   * @param params The search parameters
-   * @returns A list of docs matching the search query
+   * Search for docs in a workspace (v2 docs search endpoint).
+   * A query of the form "space:<id>" searches by space instead of name.
    */
   async searchDocs(workspaceId: string, params: SearchDocsParams): Promise<{ docs: Doc[], next_cursor: string }> {
-    // Get the API token directly from the environment variable
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    
-    try {
-      // According to the ClickUp API documentation, the endpoint is:
-      // GET /api/v2/team/{team_id}/docs/search
-      // where team_id is the workspace ID
-      const url = `https://api.clickup.com/api/v2/team/${workspaceId}/docs/search`;
-      
-      // Use the exact same headers that worked in the successful request
-      const headers = {
-        'Authorization': apiToken,
-        'Accept': 'application/json'
-      };
-      
-      // According to the ClickUp API documentation, this should be a GET request
-      // with the parameters as query parameters
-      const queryParams: any = {
-        doc_name: params.query,
-        cursor: params.cursor
-      };
-      
-      // If the query is a space ID, use it as a space_id parameter
-      if (params.query.startsWith('space:')) {
-        const spaceId = params.query.substring(6);
-        queryParams.space_id = spaceId;
-        delete queryParams.doc_name;
-      }
-      
-      const response = await axios.get(url, {
-        headers,
-        params: queryParams
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error searching docs:', error);
-      throw error;
+    const queryParams: Record<string, unknown> = { cursor: params.cursor };
+    if (params.query.startsWith('space:')) {
+      queryParams.space_id = params.query.substring(6);
+    } else {
+      queryParams.doc_name = params.query;
     }
+    return this.client.get(`/team/${workspaceId}/docs/search`, queryParams);
   }
 
   /**
-   * Create a new doc in a list
-   * @param listId The ID of the list to create the doc in
-   * @param title The title of the doc
-   * @param content The content of the doc (HTML format)
-   * @returns The created doc
+   * Create a new doc in a list (v3 API)
    */
   async createDocInList(listId: string, title: string, content: string, templateId?: string): Promise<Doc> {
-    // Create a custom axios instance for v3 API
-    const axiosInstance = this.client.getAxiosInstance();
-    const body: any = { name: title, content };
+    const body: Record<string, unknown> = { name: title, content };
     if (templateId) body.template_id = templateId;
-    const response = await axiosInstance.post(`https://api.clickup.com/api/v3/lists/${listId}/docs`, body);
-    return response.data;
+    return this.client.post(`/lists/${listId}/docs`, body, { api: 'v3' });
   }
 
   /**
-   * Create a new doc in a folder
-   * @param folderId The ID of the folder to create the doc in
-   * @param title The title of the doc
-   * @param content The content of the doc (HTML format)
-   * @returns The created doc
+   * Create a new doc in a folder (v3 API)
    */
   async createDocInFolder(folderId: string, title: string, content: string, templateId?: string): Promise<Doc> {
-    // Create a custom axios instance for v3 API
-    const axiosInstance = this.client.getAxiosInstance();
-    const body: any = { name: title, content };
+    const body: Record<string, unknown> = { name: title, content };
     if (templateId) body.template_id = templateId;
-    const response = await axiosInstance.post(`https://api.clickup.com/api/v3/folders/${folderId}/docs`, body);
-    return response.data;
+    return this.client.post(`/folders/${folderId}/docs`, body, { api: 'v3' });
   }
 
   /**
-   * Update an existing doc
-   * @param docId The ID of the doc to update
-   * @param title The new title of the doc
-   * @param content The new content of the doc (HTML format)
-   * @returns The updated doc
+   * Update an existing doc (v3 API)
    */
   async updateDoc(docId: string, title?: string, content?: string): Promise<Doc> {
-    const params: any = {};
-    if (title !== undefined) params.name = title;
-    if (content !== undefined) params.content = content;
-    
-    // Create a custom axios instance for v3 API
-    const axiosInstance = this.client.getAxiosInstance();
-    const response = await axiosInstance.put(`https://api.clickup.com/api/v3/docs/${docId}`, params);
-    return response.data;
+    const body: Record<string, unknown> = {};
+    if (title !== undefined) body.name = title;
+    if (content !== undefined) body.content = content;
+    return this.client.put(`/docs/${docId}`, body, { api: 'v3' });
   }
 
   /**
-   * Delete a page from a doc.
+   * Delete a page from a doc (v3 API)
    */
   async deleteDocPage(docId: string, pageId: string): Promise<any> {
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    const response = await axios.delete(`https://api.clickup.com/api/v3/docs/${docId}/pages/${pageId}`, {
-      headers: { 'Authorization': apiToken, 'Accept': 'application/json' }
-    });
-    return response.data;
+    return this.client.delete(`/docs/${docId}/pages/${pageId}`, { api: 'v3' });
   }
 
   /**
-   * Create a new page in a doc.
+   * Create a new page in a doc (v3 API)
    */
   async createDocPage(docId: string, title: string, content: string, subTitle?: string, parentPageId?: string): Promise<any> {
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    const body: any = { name: title, content };
+    const body: Record<string, unknown> = { name: title, content };
     if (subTitle) body.sub_title = subTitle;
     if (parentPageId) body.parent_page_id = parentPageId;
-    const response = await axios.post(`https://api.clickup.com/api/v3/docs/${docId}/pages`, body, {
-      headers: { 'Authorization': apiToken, 'Content-Type': 'application/json', 'Accept': 'application/json' }
-    });
-    return response.data;
+    return this.client.post(`/docs/${docId}/pages`, body, { api: 'v3' });
   }
 
   /**
-   * Update an existing page.
+   * Update an existing page (v3 API)
    */
   async updateDocPage(docId: string, pageId: string, title?: string, content?: string, subTitle?: string): Promise<any> {
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    const body: any = {};
+    const body: Record<string, unknown> = {};
     if (title !== undefined) body.name = title;
     if (content !== undefined) body.content = content;
     if (subTitle !== undefined) body.sub_title = subTitle;
-    const response = await axios.put(`https://api.clickup.com/api/v3/docs/${docId}/pages/${pageId}`, body, {
-      headers: { 'Authorization': apiToken, 'Content-Type': 'application/json', 'Accept': 'application/json' }
-    });
-    return response.data;
+    return this.client.put(`/docs/${docId}/pages/${pageId}`, body, { api: 'v3' });
   }
 }
 

@@ -1,5 +1,4 @@
 import { ClickUpClient } from './index.js';
-import axios from 'axios';
 
 export function createAttachmentsClient(client: ClickUpClient) {
   return {
@@ -14,32 +13,17 @@ export function createAttachmentsClient(client: ClickUpClient) {
       });
     },
 
+    /**
+     * Upload a file as a task attachment.
+     * @param fileData Base64-encoded file contents
+     * @param fileName Name for the uploaded file
+     */
     async uploadFile(taskId: string, fileData: string, fileName: string): Promise<any> {
-      const apiToken = process.env.CLICKUP_API_TOKEN;
-      const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
       const fileBuffer = Buffer.from(fileData, 'base64');
-      
-      const body = [
-        `--${boundary}`,
-        `Content-Disposition: form-data; name="attachment"; filename="${fileName}"`,
-        'Content-Type: application/octet-stream',
-        '',
-        fileBuffer.toString('binary'),
-        `--${boundary}--`,
-        ''
-      ].join('\r\n');
-
-      const response = await axios.post(
-        `https://api.clickup.com/api/v2/task/${taskId}/attachment`,
-        body,
-        {
-          headers: {
-            'Authorization': apiToken,
-            'Content-Type': `multipart/form-data; boundary=${boundary}`
-          }
-        }
-      );
-      return response.data;
+      const formData = new FormData();
+      // Blob keeps binary data intact; fetch sets the multipart boundary itself.
+      formData.append('attachment', new Blob([new Uint8Array(fileBuffer)]), fileName);
+      return client.upload(`/task/${taskId}/attachment`, formData);
     }
   };
 }

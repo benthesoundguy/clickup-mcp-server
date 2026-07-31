@@ -1,5 +1,4 @@
 import { ClickUpClient } from './index.js';
-import axios from 'axios';
 
 export interface GetChannelMessagesParams {
   cursor?: string;
