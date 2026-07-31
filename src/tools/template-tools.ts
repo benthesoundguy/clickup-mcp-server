@@ -19,7 +19,7 @@ export function setupTemplateTools(server: McpServer): void {
     async ({ workspace_id, page }) => {
       try {
         const result = await templatesClient.getTaskTemplates(workspace_id, page ?? 0);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TemplateTools] Error:', error);
         return { content: [{ type: 'text', text: `Error getting templates: ${error.message}` }], isError: true };

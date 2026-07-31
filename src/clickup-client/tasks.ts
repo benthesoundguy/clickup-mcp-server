@@ -204,68 +204,81 @@ export class TasksClient {
   }
 
   /**
-   * Create multiple tasks in a list in a single operation.
-   * Tasks are created sequentially via the API. If continueOnError is true,
-   * failures for individual tasks are collected and remaining tasks continue.
-   * @param listId The ID of the list to create tasks in
-   * @param tasks Array of task creation parameters
-   * @param continueOnError Whether to continue if an individual task fails
-   * @returns Results for each task with status and any errors
+   * Create multiple tasks in a list, sequentially with pacing so serial
+   * writes stay under ClickUp's rate limit. Never throws for individual
+   * task failures — always returns a full result set with counts.
+   * @param continueOnError When false, stops at the first failure (remaining
+   *                        tasks are reported as skipped).
    */
   async bulkCreateTasks(
     listId: string,
     tasks: CreateTaskParams[],
     continueOnError: boolean = false
-  ): Promise<{ results: Array<{ index: number; status: string; task?: Task; error?: string }> }> {
+  ): Promise<BulkResult<{ index: number; status: string; task?: Task; error?: string }>> {
     const results: Array<{ index: number; status: string; task?: Task; error?: string }> = [];
+    let succeeded = 0, failed = 0;
 
     for (let i = 0; i < tasks.length; i++) {
+      if (i > 0) await bulkPause();
       try {
         const task = await this.createTask(listId, tasks[i]);
         results.push({ index: i, status: 'created', task });
+        succeeded++;
       } catch (error: any) {
-        const errorMessage = error.message || 'Unknown error';
-        if (continueOnError) {
-          results.push({ index: i, status: 'failed', error: errorMessage });
-        } else {
-          results.push({ index: i, status: 'failed', error: errorMessage });
-          // Return partial results + the error
-          throw { partial: results, error: new Error(errorMessage) };
+        results.push({ index: i, status: 'failed', error: error.message || 'Unknown error' });
+        failed++;
+        if (!continueOnError) {
+          for (let j = i + 1; j < tasks.length; j++) {
+            results.push({ index: j, status: 'skipped' });
+          }
+          return { results, succeeded, failed, stopped_early: true };
         }
       }
     }
-
-    return { results };
+    return { results, succeeded, failed };
   }
 
   /**
-   * Update multiple tasks. Each entry requires a task_id and the fields to update.
-   * If continueOnError is true, failures for individual tasks are collected.
+   * Update multiple tasks. Same result contract as bulkCreateTasks.
    */
   async bulkUpdateTasks(
     updates: Array<{ task_id: string } & UpdateTaskParams>,
     continueOnError: boolean = false
-  ): Promise<{ results: Array<{ task_id: string; status: string; error?: string }> }> {
+  ): Promise<BulkResult<{ task_id: string; status: string; error?: string }>> {
     const results: Array<{ task_id: string; status: string; error?: string }> = [];
+    let succeeded = 0, failed = 0;
 
     for (let i = 0; i < updates.length; i++) {
+      if (i > 0) await bulkPause();
+      const { task_id, ...params } = updates[i];
       try {
-        const { task_id, ...params } = updates[i];
         await this.updateTask(task_id, params);
         results.push({ task_id, status: 'updated' });
+        succeeded++;
       } catch (error: any) {
-        const msg = error.message || 'Unknown error';
-        if (continueOnError) {
-          results.push({ task_id: updates[i].task_id, status: 'failed', error: msg });
-        } else {
-          throw { partial: results, error: new Error(msg) };
+        results.push({ task_id, status: 'failed', error: error.message || 'Unknown error' });
+        failed++;
+        if (!continueOnError) {
+          for (let j = i + 1; j < updates.length; j++) {
+            results.push({ task_id: updates[j].task_id, status: 'skipped' });
+          }
+          return { results, succeeded, failed, stopped_early: true };
         }
       }
     }
-
-    return { results };
+    return { results, succeeded, failed };
   }
 }
+
+export interface BulkResult<T> {
+  results: T[];
+  succeeded: number;
+  failed: number;
+  stopped_early?: boolean;
+}
+
+// Pause between serial bulk writes (~150ms keeps well under 100 req/min).
+const bulkPause = () => new Promise<void>(r => setTimeout(r, 150));
 
 export const createTasksClient = (client: ClickUpClient): TasksClient => {
   return new TasksClient(client);

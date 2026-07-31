@@ -18,7 +18,7 @@ export function setupGuestTools(server: McpServer): void {
     async ({ workspace_id, email, can_edit_tags }) => {
       try {
         const result = await guestsClient.inviteGuest(workspace_id, email, can_edit_tags);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -35,7 +35,7 @@ export function setupGuestTools(server: McpServer): void {
     async ({ workspace_id, guest_id }) => {
       try {
         const result = await guestsClient.getGuest(workspace_id, guest_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -53,7 +53,7 @@ export function setupGuestTools(server: McpServer): void {
     async ({ workspace_id, guest_id, ...data }) => {
       try {
         const result = await guestsClient.editGuest(workspace_id, guest_id, data);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -70,7 +70,7 @@ export function setupGuestTools(server: McpServer): void {
     async ({ workspace_id, guest_id }) => {
       try {
         const result = await guestsClient.removeGuest(workspace_id, guest_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -100,7 +100,7 @@ export function setupGuestTools(server: McpServer): void {
             result = await guestsClient.addToFolder(guest_id, location_id, permission_level);
             break;
         }
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -129,7 +129,7 @@ export function setupGuestTools(server: McpServer): void {
             result = await guestsClient.removeFromFolder(guest_id, location_id);
             break;
         }
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }

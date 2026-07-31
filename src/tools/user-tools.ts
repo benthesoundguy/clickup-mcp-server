@@ -16,7 +16,7 @@ export function setupUserTools(server: McpServer): void {
     async ({ workspace_id }) => {
       try {
         const result = await usersClient.getUsers(workspace_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -34,7 +34,7 @@ export function setupUserTools(server: McpServer): void {
     async ({ workspace_id, email, admin }) => {
       try {
         const result = await usersClient.inviteUser(workspace_id, email, admin);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -52,7 +52,7 @@ export function setupUserTools(server: McpServer): void {
     async ({ workspace_id, user_id, data }) => {
       try {
         const result = await usersClient.editUser(workspace_id, user_id, data);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
@@ -69,7 +69,7 @@ export function setupUserTools(server: McpServer): void {
     async ({ workspace_id, user_id }) => {
       try {
         const result = await usersClient.removeUser(workspace_id, user_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }

@@ -1,10 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { createClickUpClient } from '../clickup-client/index.js';
+import { createClickUpClient, getAllPages } from '../clickup-client/index.js';
 import { createTasksClient, CreateTaskParams, UpdateTaskParams } from '../clickup-client/tasks.js';
 import { createListsClient } from '../clickup-client/lists.js';
 import { createFoldersClient } from '../clickup-client/folders.js';
 import { createAuthClient } from '../clickup-client/auth.js';
+import { shapeTaskList } from './helpers.js';
 
 // Create clients
 const clickUpClient = createClickUpClient();
@@ -23,7 +24,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await authClient.getWorkspaceSeats(workspace_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting workspace seats:', error);
@@ -43,7 +44,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await authClient.getWorkspaces();
         return {
-          content: [{ type: 'text', text: JSON.stringify(result.teams, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result.teams) }]
         };
       } catch (error: any) {
         console.error('Error getting workspaces:', error);
@@ -58,21 +59,35 @@ export function setupTaskTools(server: McpServer): void {
   // Task tools
   server.tool(
     'tasks_list',
-    'Get tasks from a ClickUp list. Returns task details including name, description, assignees, and status.',
+    'Get tasks from a ClickUp list. Returns a lean view by default (id, name, status, '
+    + 'assignees, dates, priority, url); pass detail:"full" for complete task objects or '
+    + 'fields:[...] to pick specific fields. Fetches all pages automatically unless page is given.',
     {
       list_id: z.string().describe('The ID of the list to get tasks from'),
       include_closed: z.boolean().optional().describe('Whether to include closed tasks'),
       subtasks: z.boolean().optional().describe('Whether to include subtasks in the results'),
-      page: z.number().optional().describe('The page number to get'),
+      page: z.number().optional().describe('Fetch a single specific page (0-based) instead of all pages'),
       order_by: z.string().optional().describe('The field to order by'),
-      reverse: z.boolean().optional().describe('Whether to reverse the order')
+      reverse: z.boolean().optional().describe('Whether to reverse the order'),
+      detail: z.enum(['lean', 'full']).optional().describe('Response shape: lean (default) or full raw task objects'),
+      fields: z.array(z.string()).optional().describe('Specific task fields to return (overrides detail)')
     },
-    async ({ list_id, ...params }) => {
+    async ({ list_id, detail, fields, page, ...params }) => {
       try {
-        const result = await tasksClient.getTasksFromList(list_id, params);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
-        };
+        let tasks: any[];
+        let complete = true;
+        if (page !== undefined) {
+          const result = await tasksClient.getTasksFromList(list_id, { ...params, page });
+          tasks = result.tasks ?? [];
+        } else {
+          const paged = await getAllPages(
+            async (p) => ({ items: (await tasksClient.getTasksFromList(list_id, { ...params, page: p })).tasks ?? [] }),
+            { pageSize: 100, maxPages: 20 }
+          );
+          tasks = paged.items;
+          complete = paged.complete;
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(shapeTaskList(tasks, { detail, fields, complete })) }] };
       } catch (error: any) {
         console.error('Error getting tasks:', error);
         return {
@@ -94,7 +109,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const task = await tasksClient.getTask(task_id, { include_subtasks });
         return {
-          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(task) }]
         };
       } catch (error: any) {
         console.error('Error getting task details:', error);
@@ -130,7 +145,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await tasksClient.createTask(list_id, taskParams as CreateTaskParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating task:', error);
@@ -164,7 +179,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await tasksClient.updateTask(task_id, taskParams as UpdateTaskParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error updating task:', error);
@@ -196,7 +211,7 @@ export function setupTaskTools(server: McpServer): void {
         }
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error(`Error getting lists from ${container_type}:`, error);
@@ -219,7 +234,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await foldersClient.createFolder(space_id, { name });
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating folder:', error);
@@ -242,7 +257,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await foldersClient.updateFolder(folder_id, { name });
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error updating folder:', error);
@@ -264,7 +279,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await foldersClient.deleteFolder(folder_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error deleting folder:', error);
@@ -286,7 +301,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.getListsFromSpace(space_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting folderless lists:', error);
@@ -318,7 +333,7 @@ export function setupTaskTools(server: McpServer): void {
         }
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error(`Error creating list in ${container_type}:`, error);
@@ -341,7 +356,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.createFolderlessList(space_id, { name });
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating folderless list:', error);
@@ -363,7 +378,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.getList(list_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting list:', error);
@@ -386,7 +401,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.updateList(list_id, { name });
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error updating list:', error);
@@ -408,7 +423,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.deleteList(list_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error deleting list:', error);
@@ -431,7 +446,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.addTaskToList(list_id, task_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error adding task to list:', error);
@@ -454,7 +469,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.removeTaskFromList(list_id, task_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error removing task from list:', error);
@@ -478,7 +493,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.createListFromTemplateInFolder(folder_id, template_id, { name });
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating list from template in folder:', error);
@@ -502,7 +517,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         const result = await listsClient.createListFromTemplateInSpace(space_id, template_id, { name });
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating list from template in space:', error);
@@ -523,7 +538,7 @@ export function setupTaskTools(server: McpServer): void {
         console.error(`[TaskTools] Deleting task ${task_id}...`);
         await tasksClient.deleteTask(task_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify({ success: true }) }]
         };
       } catch (error: any) {
         console.error('Error deleting task:', error);
@@ -543,7 +558,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         console.error(`[TaskTools] Getting members for task ${task_id}...`);
         const members = await tasksClient.getTaskMembers(task_id);
-        return { content: [{ type: 'text', text: JSON.stringify(members, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(members) }] };
       } catch (error: any) {
         console.error('[TaskTools] Error getting task members:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -559,7 +574,7 @@ export function setupTaskTools(server: McpServer): void {
       try {
         console.error(`[TaskTools] Getting members for list ${list_id}...`);
         const members = await listsClient.getListMembers(list_id);
-        return { content: [{ type: 'text', text: JSON.stringify(members, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(members) }] };
       } catch (error: any) {
         console.error('[TaskTools] Error getting list members:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -587,24 +602,17 @@ export function setupTaskTools(server: McpServer): void {
     },
     async ({ list_id, tasks, continue_on_error }) => {
       try {
-        console.error(`[TaskTools] Bulk creating ${tasks.length} tasks in list ${list_id}...`);
         const result = await tasksClient.bulkCreateTasks(list_id, tasks as any, continue_on_error);
-        const created = result.results.filter(r => r.status === 'created').length;
-        const failed = result.results.filter(r => r.status === 'failed').length;
         return {
           content: [{ type: 'text', text: JSON.stringify({
-            summary: `Created ${created} tasks${failed > 0 ? `, ${failed} failed` : ''}`,
-            results: result.results
-          }, null, 2) }]
+            summary: `Created ${result.succeeded} of ${tasks.length} tasks${result.failed ? `, ${result.failed} failed` : ''}${result.stopped_early ? ' (stopped at first failure)' : ''}`,
+            succeeded: result.succeeded,
+            failed: result.failed,
+            results: result.results.map(r => ({ index: r.index, status: r.status, task_id: r.task?.id, error: r.error }))
+          }) }],
+          ...(result.failed > 0 ? { isError: true } : {})
         };
       } catch (error: any) {
-        const partial = error.partial;
-        if (partial) {
-          return { content: [{ type: 'text', text: JSON.stringify({
-            error: `Bulk create failed: ${error.error?.message || 'Unknown error'}`,
-            partial_results: partial
-          }, null, 2) }], isError: true };
-        }
         console.error('[TaskTools] Error bulk creating tasks:', error);
         return { content: [{ type: 'text', text: `Error bulk creating tasks: ${error.message}` }], isError: true };
       }
@@ -633,24 +641,17 @@ export function setupTaskTools(server: McpServer): void {
     },
     async ({ updates, continue_on_error }) => {
       try {
-        console.error(`[TaskTools] Bulk updating ${updates.length} tasks...`);
         const result = await tasksClient.bulkUpdateTasks(updates as any, continue_on_error);
-        const updated = result.results.filter(r => r.status === 'updated').length;
-        const failed = result.results.filter(r => r.status === 'failed').length;
         return {
           content: [{ type: 'text', text: JSON.stringify({
-            summary: `Updated ${updated} tasks${failed > 0 ? `, ${failed} failed` : ''}`,
+            summary: `Updated ${result.succeeded} of ${updates.length} tasks${result.failed ? `, ${result.failed} failed` : ''}${result.stopped_early ? ' (stopped at first failure)' : ''}`,
+            succeeded: result.succeeded,
+            failed: result.failed,
             results: result.results
-          }, null, 2) }]
+          }) }],
+          ...(result.failed > 0 ? { isError: true } : {})
         };
       } catch (error: any) {
-        const partial = error.partial;
-        if (partial) {
-          return { content: [{ type: 'text', text: JSON.stringify({
-            error: `Bulk update failed: ${error.error?.message || 'Unknown error'}`,
-            partial_results: partial
-          }, null, 2) }], isError: true };
-        }
         console.error('[TaskTools] Error bulk updating tasks:', error);
         return { content: [{ type: 'text', text: `Error bulk updating tasks: ${error.message}` }], isError: true };
       }

@@ -54,44 +54,44 @@ export function setupDocTools(server: McpServer): void {
             const result = await docsClient.getDocsFromWorkspace(workspace_id, {
               cursor, deleted: deleted ?? false, archived: archived ?? false, limit: limit || 50
             });
-            return { content: [{ type: 'text', text: JSON.stringify(result.docs, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result.docs) }] };
           }
           case 'create': {
             if (!scope_type || !scope_id || !name) throw new Error('scope_type, scope_id, and name required for create');
             const result = scope_type === 'list'
               ? await docsClient.createDocInList(scope_id, name, content || '', template_id)
               : await docsClient.createDocInFolder(scope_id, name, content || '', template_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'update': {
             if (!doc_id) throw new Error('doc_id required for update');
             const result = await docsClient.updateDoc(doc_id, name, content);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'search': {
             if (!query || !workspace_id) throw new Error('query and workspace_id required for search');
             const result = await docsClient.searchDocs(workspace_id, { query, cursor });
-            return { content: [{ type: 'text', text: JSON.stringify(result.docs, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result.docs) }] };
           }
           case 'pages_list': {
             if (!doc_id || !workspace_id) throw new Error('doc_id and workspace_id required for pages_list');
             const pages = await docsClient.getDocPages(workspace_id, doc_id, content_format);
-            return { content: [{ type: 'text', text: JSON.stringify(pages, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(pages) }] };
           }
           case 'pages_create': {
             if (!doc_id || !name) throw new Error('doc_id and name required for pages_create');
             const result = await docsClient.createDocPage(doc_id, name, content || '', sub_title, parent_page_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'pages_update': {
             if (!doc_id || !page_id) throw new Error('doc_id and page_id required for pages_update');
             const result = await docsClient.updateDocPage(doc_id, page_id, name, content, sub_title);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'pages_delete': {
             if (!doc_id || !page_id) throw new Error('doc_id and page_id required for pages_delete');
             const result = await docsClient.deleteDocPage(doc_id, page_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {

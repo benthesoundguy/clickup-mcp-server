@@ -28,7 +28,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.getTaskComments(task_id, params);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting task comments:', error);
@@ -54,7 +54,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.createTaskComment(task_id, commentParams as CreateTaskCommentParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating task comment:', error);
@@ -79,7 +79,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.getChatViewComments(view_id, params);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting chat view comments:', error);
@@ -104,7 +104,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.createChatViewComment(view_id, commentParams as CreateChatViewCommentParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating chat view comment:', error);
@@ -129,7 +129,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.getListComments(list_id, params);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting list comments:', error);
@@ -155,7 +155,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.createListComment(list_id, commentParams as CreateListCommentParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating list comment:', error);
@@ -181,7 +181,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.updateComment(comment_id, commentParams as UpdateCommentParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error updating comment:', error);
@@ -204,7 +204,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.deleteComment(comment_id);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error deleting comment:', error);
@@ -229,7 +229,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.getThreadedComments(comment_id, params);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error getting threaded comments:', error);
@@ -254,7 +254,7 @@ export function setupCommentTools(server: McpServer): void {
       try {
         const result = await commentsClient.createThreadedComment(comment_id, commentParams as CreateThreadedCommentParams);
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error creating threaded comment:', error);

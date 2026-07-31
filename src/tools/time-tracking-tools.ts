@@ -21,7 +21,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
     async ({ team_id, ...params }) => {
       try {
         const result = await timeTrackingClient.getTimeEntries(team_id, params);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error listing time entries:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -51,7 +51,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
         if (billable !== undefined) data.billable = billable;
         if (tags) data.tags = tags;
         const result = await timeTrackingClient.createTimeEntry(team_id, data);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error creating time entry:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -75,7 +75,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
     async ({ team_id, entry_id, ...data }) => {
       try {
         const result = await timeTrackingClient.updateTimeEntry(team_id, entry_id, data);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error updating time entry:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -93,7 +93,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
     async ({ team_id, entry_id }) => {
       try {
         const result = await timeTrackingClient.deleteTimeEntry(team_id, entry_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error deleting time entry:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -119,7 +119,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
         if (billable !== undefined) data.billable = billable;
         if (tags) data.tags = tags;
         const result = await timeTrackingClient.startTimer(team_id, data);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error starting timer:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -141,7 +141,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
         if (description) data.description = description;
         if (tags) data.tags = tags;
         const result = await timeTrackingClient.stopTimer(team_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error stopping timer:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
@@ -158,7 +158,7 @@ export function setupTimeTrackingTools(server: McpServer): void {
     async ({ team_id }) => {
       try {
         const result = await timeTrackingClient.getRunningTimeEntry(team_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error getting running time entry:', error);
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };

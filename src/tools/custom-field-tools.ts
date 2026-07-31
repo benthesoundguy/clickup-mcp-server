@@ -36,12 +36,12 @@ export function setupCustomFieldTools(server: McpServer): void {
               case 'workspace': result = await customFieldsClient.getWorkspaceFields(scope_id!); break;
               default: throw new Error('scope_type and scope_id required for list');
             }
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'create': {
             if (!scope_id || !name || !type) throw new Error('scope_id (a list ID), name, and type required for create');
             const result = await customFieldsClient.createField(scope_id, { name, type, required, options });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {

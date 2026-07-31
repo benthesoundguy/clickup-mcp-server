@@ -33,32 +33,32 @@ export function setupChatTools(server: McpServer): void {
         switch (action) {
           case 'list': {
             const result = await chatClient.getChannels(workspace_id, { cursor, limit });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'get': {
             if (!channel_id) throw new Error('channel_id required for get');
             const result = await chatClient.getChannel(workspace_id, channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'create': {
             if (!name) throw new Error('name required for create');
             const result = await chatClient.createChannel(workspace_id, { name, description, topic, visibility, user_ids });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'update': {
             if (!channel_id) throw new Error('channel_id required for update');
             const result = await chatClient.updateChannel(workspace_id, channel_id, { name, description, topic, visibility, archived });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'delete': {
             if (!channel_id) throw new Error('channel_id required for delete');
             await chatClient.deleteChannel(workspace_id, channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'dm': {
             if (!user_ids?.length) throw new Error('user_ids required for dm');
             const result = await chatClient.createDirectMessage(workspace_id, user_ids);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {
@@ -95,52 +95,52 @@ export function setupChatTools(server: McpServer): void {
           case 'list': {
             if (!channel_id) throw new Error('channel_id required for list');
             const result = await chatClient.getChannelMessages(workspace_id, channel_id, { cursor, limit, content_format });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'send': {
             if (!channel_id || !content) throw new Error('channel_id and content required for send');
             const result = await chatClient.sendMessage(workspace_id, channel_id, { content, content_format });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'update': {
             if (!message_id || !content) throw new Error('message_id and content required for update');
             const result = await chatClient.updateMessage(workspace_id, message_id, content, content_format);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'delete': {
             if (!message_id) throw new Error('message_id required for delete');
             await chatClient.deleteMessage(workspace_id, message_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'replies_list': {
             if (!message_id) throw new Error('message_id required for replies_list');
             const result = await chatClient.getMessageReplies(workspace_id, message_id, { cursor, limit, content_format });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'replies_create': {
             if (!message_id || !content) throw new Error('message_id and content required for replies_create');
             const result = await chatClient.createReply(workspace_id, message_id, { content, content_format });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'reactions_list': {
             if (!message_id) throw new Error('message_id required for reactions_list');
             const result = await chatClient.getMessageReactions(workspace_id, message_id, { cursor, limit });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'reactions_create': {
             if (!message_id || !reaction) throw new Error('message_id and reaction required for reactions_create');
             const result = await chatClient.createMessageReaction(workspace_id, message_id, reaction);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'reactions_delete': {
             if (!message_id || !reaction) throw new Error('message_id and reaction required for reactions_delete');
             await chatClient.deleteMessageReaction(workspace_id, message_id, reaction);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'tagged_users': {
             if (!message_id) throw new Error('message_id required for tagged_users');
             const result = await chatClient.getTaggedUsers(workspace_id, message_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {
@@ -166,7 +166,7 @@ export function setupChatTools(server: McpServer): void {
         const result = action === 'list'
           ? await chatClient.getChannelMembers(workspace_id, channel_id, { cursor, limit })
           : await chatClient.getChannelFollowers(workspace_id, channel_id, { cursor, limit });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[ChatTools] Error:', error);
         return { content: [{ type: 'text', text: `Error with channel members: ${error.message}` }], isError: true };

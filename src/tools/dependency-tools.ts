@@ -24,16 +24,16 @@ export function setupDependencyTools(server: McpServer): void {
           case 'create': {
             if (!depends_on) throw new Error('depends_on required for create');
             await dependenciesClient.addDependency(task_id, depends_on);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'get': {
             const result = await dependenciesClient.getTaskDependencies(task_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'delete': {
             if (!depends_on) throw new Error('depends_on required for delete');
             await dependenciesClient.removeDependency(task_id, depends_on);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
         }
       } catch (error: any) {

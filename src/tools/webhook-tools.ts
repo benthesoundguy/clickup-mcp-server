@@ -28,22 +28,22 @@ export function setupWebhookTools(server: McpServer): void {
           case 'list': {
             if (!workspace_id) throw new Error('workspace_id required for list');
             const result = await webhooksClient.getWebhooks(workspace_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'create': {
             if (!workspace_id || !endpoint || !events?.length) throw new Error('workspace_id, endpoint, and events required for create');
             const result = await webhooksClient.createWebhook(workspace_id, endpoint, events, space_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'update': {
             if (!webhook_id) throw new Error('webhook_id required for update');
             const result = await webhooksClient.updateWebhook(webhook_id, endpoint, events, status);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'delete': {
             if (!webhook_id) throw new Error('webhook_id required for delete');
             await webhooksClient.deleteWebhook(webhook_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'process': {
             if (!payload) throw new Error('payload is required for process');
@@ -53,7 +53,7 @@ export function setupWebhookTools(server: McpServer): void {
             const rawBody = typeof payload === 'string' ? payload : undefined;
             const parsed = rawBody ? JSON.parse(rawBody) : payload;
             const result = parseWebhookPayload(parsed, secret, signature, rawBody);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {

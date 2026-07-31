@@ -44,37 +44,33 @@ export function setupCustomFieldValueTools(server: McpServer): void {
           case 'get': {
             if (!task_id) throw new Error('task_id required for get');
             const result = await customFieldsClient.getTaskFieldValues(task_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'set': {
             if (!task_id || !field_id) throw new Error('task_id and field_id required for set');
             const result = await customFieldsClient.setTaskFieldValue(task_id, field_id, value);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'remove': {
             if (!task_id || !field_id) throw new Error('task_id and field_id required for remove');
             await customFieldsClient.removeTaskFieldValue(task_id, field_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'bulk_set': {
             if (!updates?.length) throw new Error('updates array required for bulk_set');
             const result = await customFieldsClient.bulkSetFieldValues(updates as any, continue_on_error);
-            const set = result.results.filter((r: any) => r.status === 'set').length;
-            const failed = result.results.filter((r: any) => r.status === 'failed').length;
-            return { content: [{ type: 'text', text: JSON.stringify({
-              summary: `Set ${set} field values${failed > 0 ? `, ${failed} failed` : ''}`,
-              results: result.results
-            }, null, 2) }] };
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                summary: `Set ${result.succeeded} of ${updates.length} field values${result.failed ? `, ${result.failed} failed` : ''}${result.stopped_early ? ' (stopped at first failure)' : ''}`,
+                succeeded: result.succeeded,
+                failed: result.failed,
+                results: result.results
+              }) }],
+              ...(result.failed > 0 ? { isError: true } : {})
+            };
           }
         }
       } catch (error: any) {
-        const partial = error.partial;
-        if (partial) {
-          return { content: [{ type: 'text', text: JSON.stringify({
-            error: `Bulk set failed: ${error.error?.message || 'Unknown error'}`,
-            partial_results: partial
-          }, null, 2) }], isError: true };
-        }
         console.error('[CustomFieldValueTools] Error:', error);
         return { content: [{ type: 'text', text: `Error with custom field values: ${error.message}` }], isError: true };
       }

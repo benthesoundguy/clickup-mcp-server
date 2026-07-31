@@ -22,17 +22,17 @@ export function setupAttachmentTools(server: McpServer): void {
         switch (action) {
           case 'list': {
             const result = await attachmentsClient.getTaskAttachments(task_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'create': {
             if (!url) throw new Error('url is required for create action');
             const result = await attachmentsClient.createTaskAttachment(task_id, url, file_name);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'upload': {
             if (!file_data || !file_name) throw new Error('file_data and file_name are required for upload');
             const result = await attachmentsClient.uploadFile(task_id, file_data, file_name);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {

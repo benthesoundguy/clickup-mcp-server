@@ -21,7 +21,7 @@ export function setupChecklistTools(server: McpServer): void {
         const checklist = await checklistsClient.createChecklist(task_id, { name } as CreateChecklistParams);
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(checklist, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(checklist) }]
         };
       } catch (error: any) {
         console.error('Error creating checklist:', error);
@@ -46,7 +46,7 @@ export function setupChecklistTools(server: McpServer): void {
         const checklist = await checklistsClient.updateChecklist(checklist_id, { name });
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(checklist, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(checklist) }]
         };
       } catch (error: any) {
         console.error('Error updating checklist:', error);
@@ -70,7 +70,7 @@ export function setupChecklistTools(server: McpServer): void {
         const result = await checklistsClient.deleteChecklist(checklist_id);
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error deleting checklist:', error);
@@ -101,7 +101,7 @@ export function setupChecklistTools(server: McpServer): void {
         const checklistItem = await checklistsClient.createChecklistItem(checklist_id, itemParams);
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(checklistItem, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(checklistItem) }]
         };
       } catch (error: any) {
         console.error('Error creating checklist item:', error);
@@ -134,7 +134,7 @@ export function setupChecklistTools(server: McpServer): void {
         const checklistItem = await checklistsClient.updateChecklistItem(checklist_id, checklist_item_id, itemParams);
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(checklistItem, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(checklistItem) }]
         };
       } catch (error: any) {
         console.error('Error updating checklist item:', error);
@@ -159,7 +159,7 @@ export function setupChecklistTools(server: McpServer): void {
         const result = await checklistsClient.deleteChecklistItem(checklist_id, checklist_item_id);
         
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result) }]
         };
       } catch (error: any) {
         console.error('Error deleting checklist item:', error);

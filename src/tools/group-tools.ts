@@ -24,12 +24,12 @@ export function setupGroupTools(server: McpServer): void {
           case 'list': {
             if (!workspace_id) throw new Error('workspace_id is required for list');
             const result = await groupsClient.getGroups(workspace_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'create': {
             if (!workspace_id || !name) throw new Error('workspace_id and name are required for create');
             const result = await groupsClient.createGroup(workspace_id, name, add_members);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'update': {
             if (!group_id) throw new Error('group_id is required for update');
@@ -39,12 +39,12 @@ export function setupGroupTools(server: McpServer): void {
               changes.members = { add: add_members, rem: remove_members };
             }
             const result = await groupsClient.updateGroup(group_id, changes);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'delete': {
             if (!group_id) throw new Error('group_id is required for delete');
             const result = await groupsClient.deleteGroup(group_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {

@@ -95,23 +95,36 @@ export class CustomFieldsClient {
   // but only edited/deleted in the ClickUp UI.
 
   /**
-   * Set custom field values on multiple tasks.
+   * Set custom field values on multiple tasks, sequentially with pacing.
+   * Never throws for individual failures — returns a full result set with
+   * counts; with continueOnError false, stops at the first failure and
+   * marks the rest skipped.
    */
-  async bulkSetFieldValues(updates: Array<{ task_id: string; field_id: string; value: any }>, continueOnError?: boolean): Promise<any> {
+  async bulkSetFieldValues(
+    updates: Array<{ task_id: string; field_id: string; value: any }>,
+    continueOnError?: boolean
+  ): Promise<{ results: Array<{ task_id: string; field_id: string; status: string; error?: string }>; succeeded: number; failed: number; stopped_early?: boolean }> {
     const results: Array<{ task_id: string; field_id: string; status: string; error?: string }> = [];
+    let succeeded = 0, failed = 0;
     for (let i = 0; i < updates.length; i++) {
+      if (i > 0) await new Promise<void>(r => setTimeout(r, 150));
+      const { task_id, field_id, value } = updates[i];
       try {
-        await this.setTaskFieldValue(updates[i].task_id, updates[i].field_id, updates[i].value);
-        results.push({ task_id: updates[i].task_id, field_id: updates[i].field_id, status: 'set' });
+        await this.setTaskFieldValue(task_id, field_id, value);
+        results.push({ task_id, field_id, status: 'set' });
+        succeeded++;
       } catch (error: any) {
-        if (continueOnError) {
-          results.push({ task_id: updates[i].task_id, field_id: updates[i].field_id, status: 'failed', error: error.message });
-        } else {
-          throw { partial: results, error: new Error(error.message) };
+        results.push({ task_id, field_id, status: 'failed', error: error.message });
+        failed++;
+        if (!continueOnError) {
+          for (let j = i + 1; j < updates.length; j++) {
+            results.push({ task_id: updates[j].task_id, field_id: updates[j].field_id, status: 'skipped' });
+          }
+          return { results, succeeded, failed, stopped_early: true };
         }
       }
     }
-    return { results };
+    return { results, succeeded, failed };
   }
 }
 

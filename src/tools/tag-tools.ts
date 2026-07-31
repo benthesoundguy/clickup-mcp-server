@@ -23,22 +23,22 @@ export function setupTagTools(server: McpServer): void {
         switch (action) {
           case 'list': {
             const tags = await tagsClient.getSpaceTags(space_id);
-            return { content: [{ type: 'text', text: JSON.stringify(tags, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(tags) }] };
           }
           case 'create': {
             if (!name) throw new Error('name is required for create');
             await tagsClient.createSpaceTag(space_id, name, tag_bg, tag_fg);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'update': {
             if (!tag_name) throw new Error('tag_name is required for update');
             await tagsClient.editSpaceTag(space_id, tag_name, name, tag_bg, tag_fg);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
           case 'delete': {
             if (!tag_name) throw new Error('tag_name is required for delete');
             await tagsClient.deleteSpaceTag(space_id, tag_name);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
           }
         }
       } catch (error: any) {
@@ -55,7 +55,7 @@ export function setupTagTools(server: McpServer): void {
     async ({ task_id, tag_name }) => {
       try {
         await tagsClient.addTagToTask(task_id, tag_name);
-        return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
       } catch (error: any) {
         console.error('[TagTools] Error assigning tag:', error);
         return { content: [{ type: 'text', text: `Error assigning tag: ${error.message}` }], isError: true };
@@ -70,7 +70,7 @@ export function setupTagTools(server: McpServer): void {
     async ({ task_id, tag_name }) => {
       try {
         await tagsClient.removeTagFromTask(task_id, tag_name);
-        return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
       } catch (error: any) {
         console.error('[TagTools] Error unassigning tag:', error);
         return { content: [{ type: 'text', text: `Error unassigning tag: ${error.message}` }], isError: true };

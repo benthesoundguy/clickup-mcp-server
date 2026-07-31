@@ -18,10 +18,10 @@ export function setupSpaceTools(server: McpServer): void {
       try {
         if (space_id) {
           const space = await spacesClient.getSpace(space_id);
-          return { content: [{ type: 'text', text: JSON.stringify(space, null, 2) }] };
+          return { content: [{ type: 'text', text: JSON.stringify(space) }] };
         }
         const spaces = await spacesClient.getSpacesFromWorkspace(workspace_id);
-        return { content: [{ type: 'text', text: JSON.stringify(spaces, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(spaces) }] };
       } catch (error: any) {
         console.error('[SpaceTools] Error:', error);
         return { content: [{ type: 'text', text: `Error with spaces: ${error.message}` }], isError: true };

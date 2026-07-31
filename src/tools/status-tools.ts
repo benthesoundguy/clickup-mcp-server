@@ -28,7 +28,7 @@ export function setupStatusTools(server: McpServer): void {
         switch (action) {
           case 'list': {
             const statuses = await listsClient.getStatuses(list_id);
-            return { content: [{ type: 'text', text: JSON.stringify(statuses, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(statuses) }] };
           }
           case 'create':
           case 'update':
@@ -61,7 +61,7 @@ export function setupStatusTools(server: McpServer): void {
             }
 
             const result = await listsClient.setStatuses(list_id, updated);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }
       } catch (error: any) {

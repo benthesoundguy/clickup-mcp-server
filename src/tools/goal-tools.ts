@@ -14,7 +14,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ workspace_id }) => {
       try {
         const result = await goalsClient.getGoals(workspace_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error listing goals:', error);
         return { content: [{ type: 'text', text: `Error listing goals: ${error.message}` }], isError: true };
@@ -33,7 +33,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ workspace_id, name, due_date }) => {
       try {
         const result = await goalsClient.createGoal(workspace_id, name, due_date);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error creating goal:', error);
         return { content: [{ type: 'text', text: `Error creating goal: ${error.message}` }], isError: true };
@@ -48,7 +48,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ goal_id }) => {
       try {
         const result = await goalsClient.getGoal(goal_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error getting goal:', error);
         return { content: [{ type: 'text', text: `Error getting goal: ${error.message}` }], isError: true };
@@ -67,7 +67,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ goal_id, name, due_date }) => {
       try {
         const result = await goalsClient.updateGoal(goal_id, name, due_date);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error updating goal:', error);
         return { content: [{ type: 'text', text: `Error updating goal: ${error.message}` }], isError: true };
@@ -82,7 +82,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ goal_id }) => {
       try {
         const result = await goalsClient.deleteGoal(goal_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error deleting goal:', error);
         return { content: [{ type: 'text', text: `Error deleting goal: ${error.message}` }], isError: true };
@@ -103,7 +103,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ goal_id, name, type, target_value, unit }) => {
       try {
         const result = await goalsClient.createKeyResult(goal_id, name, type, target_value, unit);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error creating key result:', error);
         return { content: [{ type: 'text', text: `Error creating key result: ${error.message}` }], isError: true };
@@ -122,7 +122,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ goal_id, key_result_id, name }) => {
       try {
         const result = await goalsClient.updateKeyResult(goal_id, key_result_id, name);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error updating key result:', error);
         return { content: [{ type: 'text', text: `Error updating key result: ${error.message}` }], isError: true };
@@ -140,7 +140,7 @@ export function setupGoalTools(server: McpServer): void {
     async ({ goal_id, key_result_id }) => {
       try {
         const result = await goalsClient.deleteKeyResult(goal_id, key_result_id);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error deleting key result:', error);
         return { content: [{ type: 'text', text: `Error deleting key result: ${error.message}` }], isError: true };

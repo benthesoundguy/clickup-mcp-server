@@ -19,7 +19,7 @@ export function setupReminderTools(server: McpServer): void {
     async ({ title, due_date, description }) => {
       try {
         const result = await remindersClient.createReminder(title, due_date, description);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[ReminderTools] Error:', error);
         return { content: [{ type: 'text', text: `Error creating reminder: ${error.message}` }], isError: true };
