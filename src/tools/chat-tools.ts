@@ -85,7 +85,7 @@ export function setupChatTools(server: McpServer): void {
       message_id: z.string().optional().describe('Required for update, delete, replies_*, reactions_*, tagged_users'),
       content: z.string().optional().describe('Message text (required for send, update, replies_create)'),
       content_format: z.enum(['text/md', 'text/plain']).optional().describe('Content format (default text/md)'),
-      reaction: z.string().optional().describe('Reaction emoji name (required for reactions_create, reactions_delete)'),
+      reaction: z.string().optional().describe('Reaction as a colon-free emoji shortcode, e.g. "+1", "heart", "joy" (required for reactions_create, reactions_delete). Names like "thumbsup" or literal emoji are rejected by ClickUp.'),
       cursor: z.string().optional().describe('Pagination cursor (list-style actions)'),
       limit: z.number().optional().describe('Max results per page (list-style actions)'),
     },

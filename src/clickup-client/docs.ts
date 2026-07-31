@@ -57,73 +57,71 @@ export class DocsClient {
   }
 
   /**
-   * Search for docs in a workspace (v2 docs search endpoint).
-   * A query of the form "space:<id>" searches by space instead of name.
+   * Search docs in a workspace by name (case-insensitive substring).
+   * The API has no free-text doc search endpoint (the old
+   * /team/{id}/docs/search route is dead — smoke-verified), so this pages
+   * through the v3 doc listing and filters locally.
    */
   async searchDocs(workspaceId: string, params: SearchDocsParams): Promise<{ docs: Doc[], next_cursor: string }> {
-    const queryParams: Record<string, unknown> = { cursor: params.cursor };
-    if (params.query.startsWith('space:')) {
-      queryParams.space_id = params.query.substring(6);
-    } else {
-      queryParams.doc_name = params.query;
+    const needle = params.query.toLowerCase();
+    const matches: Doc[] = [];
+    let cursor: string | undefined = params.cursor;
+    for (let page = 0; page < 10; page++) {
+      const res: { docs: Doc[]; next_cursor: string } = await this.getDocsFromWorkspace(workspaceId, { cursor, limit: 100 });
+      for (const doc of res.docs ?? []) {
+        if (doc.name?.toLowerCase().includes(needle)) matches.push(doc);
+      }
+      cursor = res.next_cursor || undefined;
+      if (!cursor) break;
     }
-    return this.client.get(`/team/${workspaceId}/docs/search`, queryParams);
+    return { docs: matches, next_cursor: cursor ?? '' };
   }
 
   /**
-   * Create a new doc in a list (v3 API)
+   * Create a doc in a workspace (v3 API: POST /workspaces/{id}/docs).
+   * Parent container types: 4 = space, 5 = folder, 6 = list.
+   * The doc is created with one page holding the provided content.
    */
-  async createDocInList(listId: string, title: string, content: string, templateId?: string): Promise<Doc> {
-    const body: Record<string, unknown> = { name: title, content };
-    if (templateId) body.template_id = templateId;
-    return this.client.post(`/lists/${listId}/docs`, body, { api: 'v3' });
+  async createDoc(
+    workspaceId: string,
+    name: string,
+    parent?: { id: string; type: number },
+    visibility: string = 'PRIVATE'
+  ): Promise<Doc> {
+    const body: Record<string, unknown> = { name, create_page: true, visibility };
+    if (parent) body.parent = parent;
+    return this.client.post(`/workspaces/${workspaceId}/docs`, body, { api: 'v3' });
+  }
+
+  /** Create a doc attached to a list. */
+  async createDocInList(workspaceId: string, listId: string, title: string): Promise<Doc> {
+    return this.createDoc(workspaceId, title, { id: listId, type: 6 });
+  }
+
+  /** Create a doc attached to a folder. */
+  async createDocInFolder(workspaceId: string, folderId: string, title: string): Promise<Doc> {
+    return this.createDoc(workspaceId, title, { id: folderId, type: 5 });
   }
 
   /**
-   * Create a new doc in a folder (v3 API)
+   * Create a new page in a doc (v3 API, workspace-scoped route)
    */
-  async createDocInFolder(folderId: string, title: string, content: string, templateId?: string): Promise<Doc> {
-    const body: Record<string, unknown> = { name: title, content };
-    if (templateId) body.template_id = templateId;
-    return this.client.post(`/folders/${folderId}/docs`, body, { api: 'v3' });
-  }
-
-  /**
-   * Update an existing doc (v3 API)
-   */
-  async updateDoc(docId: string, title?: string, content?: string): Promise<Doc> {
-    const body: Record<string, unknown> = {};
-    if (title !== undefined) body.name = title;
-    if (content !== undefined) body.content = content;
-    return this.client.put(`/docs/${docId}`, body, { api: 'v3' });
-  }
-
-  /**
-   * Delete a page from a doc (v3 API)
-   */
-  async deleteDocPage(docId: string, pageId: string): Promise<any> {
-    return this.client.delete(`/docs/${docId}/pages/${pageId}`, { api: 'v3' });
-  }
-
-  /**
-   * Create a new page in a doc (v3 API)
-   */
-  async createDocPage(docId: string, title: string, content: string, subTitle?: string, parentPageId?: string): Promise<any> {
+  async createDocPage(workspaceId: string, docId: string, title: string, content: string, subTitle?: string, parentPageId?: string): Promise<any> {
     const body: Record<string, unknown> = { name: title, content };
     if (subTitle) body.sub_title = subTitle;
     if (parentPageId) body.parent_page_id = parentPageId;
-    return this.client.post(`/docs/${docId}/pages`, body, { api: 'v3' });
+    return this.client.post(`/workspaces/${workspaceId}/docs/${docId}/pages`, body, { api: 'v3' });
   }
 
   /**
-   * Update an existing page (v3 API)
+   * Update an existing page (v3 API, workspace-scoped route)
    */
-  async updateDocPage(docId: string, pageId: string, title?: string, content?: string, subTitle?: string): Promise<any> {
+  async updateDocPage(workspaceId: string, docId: string, pageId: string, title?: string, content?: string, subTitle?: string): Promise<any> {
     const body: Record<string, unknown> = {};
     if (title !== undefined) body.name = title;
     if (content !== undefined) body.content = content;
     if (subTitle !== undefined) body.sub_title = subTitle;
-    return this.client.put(`/docs/${docId}/pages/${pageId}`, body, { api: 'v3' });
+    return this.client.put(`/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`, body, { api: 'v3' });
   }
 }
 

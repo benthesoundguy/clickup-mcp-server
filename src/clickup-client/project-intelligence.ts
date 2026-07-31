@@ -460,10 +460,22 @@ export function createProjectIntelligenceClient() {
 
     async timeReport(listId: string, start_date?: string, end_date?: string) {
       const list = await listsClient.getList(listId);
-      const workspaceId = (list as any).team_id || (list as any).workspace_id || '';
-
       const data = await loadListData(listId);
       const taskMap = new Map(data.tasks.map((t: any) => [t.id, t.name]));
+
+      // Derive the workspace id: list payload → any task's team_id → the
+      // token's only workspace. Fail loudly rather than querying /team//.
+      let workspaceId: string = String((list as any).team_id ?? (list as any).workspace_id ?? '');
+      if (!workspaceId) {
+        workspaceId = String((data.tasks[0] as any)?.team_id ?? '');
+      }
+      if (!workspaceId) {
+        const teams = await clickUpClient.get<any>('/team');
+        if (teams.teams?.length === 1) workspaceId = String(teams.teams[0].id);
+      }
+      if (!workspaceId) {
+        throw new Error('Could not determine the workspace for this list (empty list in a multi-workspace token). Time report unavailable.');
+      }
 
       const params: any = {};
       if (start_date) params.start_date = start_date;

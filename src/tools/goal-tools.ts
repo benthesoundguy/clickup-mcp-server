@@ -96,13 +96,19 @@ export function setupGoalTools(server: McpServer): void {
     {
       goal_id: z.string().describe('The ID of the goal'),
       name: z.string().describe('The name of the key result'),
-      type: z.string().describe('The type of key result (e.g. "number", "currency", "percentage", "automatic")'),
-      target_value: z.number().optional().describe('The target value for the key result'),
-      unit: z.string().optional().describe('The unit for the key result value')
+      type: z.enum(['number', 'currency', 'boolean', 'percentage', 'automatic']).describe('The type of key result'),
+      steps_start: z.number().optional().describe('Starting value (default 0)'),
+      steps_end: z.number().optional().describe('Target value (default 100)'),
+      unit: z.string().optional().describe('The unit for the key result value'),
+      owners: z.array(z.number()).optional().describe('User IDs who own this key result'),
+      task_ids: z.array(z.string()).optional().describe('Task IDs to link (for automatic type)'),
+      list_ids: z.array(z.string()).optional().describe('List IDs to link (for automatic type)')
     },
-    async ({ goal_id, name, type, target_value, unit }) => {
+    async ({ goal_id, name, type, steps_start, steps_end, unit, owners, task_ids, list_ids }) => {
       try {
-        const result = await goalsClient.createKeyResult(goal_id, name, type, target_value, unit);
+        const result = await goalsClient.createKeyResult(goal_id, name, type, {
+          stepsStart: steps_start, stepsEnd: steps_end, unit, owners, taskIds: task_ids, listIds: list_ids
+        });
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error creating key result:', error);

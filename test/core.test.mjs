@@ -48,6 +48,17 @@ before(async () => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ recovered: true }));
       }
+    } else if (path === '/flaky500') {
+      // Odd hits: 500. Even: success. (Per-method counters via query key.)
+      const key = '/flaky500:' + req.method;
+      hits[key] = (hits[key] || 0) + 1;
+      if (hits[key] % 2 === 1) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ err: 'transient' }));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ recovered: true }));
+      }
     } else if (path === '/always429') {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '0' });
       res.end(JSON.stringify({ err: 'Rate limit forever', ECODE: 'RATE_001' }));
@@ -145,6 +156,20 @@ test('persistent 429 exhausts retries then throws', async () => {
     (err) => err instanceof ClickUpApiError && err.status === 429
   );
   assert.equal(hits['/always429'], 3); // initial + 2 retries
+});
+
+test('transient 500 retries for GET (idempotent) but NOT for POST', async () => {
+  const client = makeClient();
+  // GET: first hit 500, retry succeeds
+  const got = await client.get('/flaky500');
+  assert.deepEqual(got, { recovered: true });
+  // POST: first hit 500 → throws immediately, no double-send
+  hits['/flaky500:POST'] = 0;
+  await assert.rejects(
+    () => client.post('/flaky500', { x: 1 }),
+    (err) => err instanceof ClickUpApiError && err.status === 500
+  );
+  assert.equal(hits['/flaky500:POST'], 1);
 });
 
 test('timeout aborts and reports a timeout error', async () => {

@@ -19,9 +19,11 @@ export function setupStatusTools(server: McpServer): void {
       all_statuses: z.array(z.object({
         status: z.string(),
         color: z.string(),
+        type: z.string().optional().describe('Status type: open, custom, done, or closed. Exactly one "open" status is required.'),
         orderindex: z.number().optional(),
         hide_label: z.boolean().optional()
-      })).optional().describe('Full statuses array for create/update/delete/reorder operations')
+      })).optional().describe('Full statuses array for create/update/delete/reorder operations. '
+        + 'ClickUp requires exactly one status of type "open"; preserve existing types when modifying.')
     },
     async ({ action, list_id, status_name, status_color, status_order, all_statuses }) => {
       try {

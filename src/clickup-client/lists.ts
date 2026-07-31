@@ -79,7 +79,7 @@ export class ListsClient {
 
   async setStatuses(
     listId: string,
-    statuses: Array<{ status: string; color: string; orderindex?: number; hide_label?: boolean }>,
+    statuses: Array<{ status: string; color: string; type?: string; orderindex?: number; hide_label?: boolean }>,
     overrideExisting?: boolean
   ): Promise<any> {
     return this.client.put(`/list/${listId}`, {

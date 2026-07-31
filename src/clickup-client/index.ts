@@ -19,6 +19,10 @@ const BASE_URLS = {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
 const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+// 500s are retried only for idempotent methods — a retried POST could
+// double-create (observed: ClickUp's experimental chat API throws
+// transient 500s that succeed on the next attempt).
+const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'PATCH', 'DELETE']);
 
 export type ApiVersion = keyof typeof BASE_URLS;
 
@@ -156,7 +160,10 @@ export class ClickUpClient {
         errBody?.err ?? errBody?.error ?? response.statusText
       }`;
 
-      if (RETRYABLE_STATUSES.has(response.status) && attempt < maxRetries) {
+      const retryable =
+        RETRYABLE_STATUSES.has(response.status) ||
+        (response.status === 500 && IDEMPOTENT_METHODS.has(method.toUpperCase()));
+      if (retryable && attempt < maxRetries) {
         const retryAfter = Number(response.headers.get('retry-after'));
         const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000

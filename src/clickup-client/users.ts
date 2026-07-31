@@ -2,9 +2,16 @@ import { ClickUpClient } from './index.js';
 
 export function createUsersClient(client: ClickUpClient) {
   return {
-    /** Get all users in a workspace. */
+    /**
+     * Get all users in a workspace. There is no list-users endpoint in the
+     * public API (GET /team/{id}/user is a dead route — smoke-verified);
+     * members are returned on the workspace object from GET /team.
+     */
     async getUsers(workspaceId: string): Promise<any> {
-      return client.get(`/team/${workspaceId}/user`);
+      const res = await client.get<any>('/team');
+      const team = (res.teams ?? []).find((t: any) => String(t.id) === String(workspaceId));
+      if (!team) throw new Error(`Workspace ${workspaceId} not found for this token`);
+      return { members: team.members ?? [] };
     },
 
     /** Invite a user to a workspace. */

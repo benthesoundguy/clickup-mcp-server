@@ -2,22 +2,21 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createClickUpClient } from '../clickup-client/index.js';
 import { createDocsClient } from '../clickup-client/docs.js';
-import { createAuthClient } from '../clickup-client/auth.js';
 
 const clickUpClient = createClickUpClient();
 const docsClient = createDocsClient(clickUpClient);
-const authClient = createAuthClient(clickUpClient);
 
 export function setupDocTools(server: McpServer): void {
   server.tool(
     'docs',
     'Manage ClickUp docs and pages. Use action to get, list, create, update docs, or list, create, update, delete pages, or search docs.',
     {
-      action: z.enum(['get', 'list', 'create', 'update', 'search', 'pages_list', 'pages_create', 'pages_update', 'pages_delete'])
-        .describe('Action to perform'),
-      workspace_id: z.string().optional().describe('The ID of the workspace (get, list, search)'),
-      doc_id: z.string().optional().describe('Required for get, update, pages_*: the doc ID'),
-      page_id: z.string().optional().describe('Required for pages_update, pages_delete: the page ID'),
+      action: z.enum(['get', 'list', 'create', 'search', 'pages_list', 'pages_create', 'pages_update'])
+        .describe('Action to perform. (The ClickUp docs API has no doc-update or page-delete '
+          + 'operations; edit content via pages_update.)'),
+      workspace_id: z.string().optional().describe('The workspace ID (required for every action)'),
+      doc_id: z.string().optional().describe('Required for get, pages_*: the doc ID'),
+      page_id: z.string().optional().describe('Required for pages_update: the page ID'),
       query: z.string().optional().describe('Required for search: the search query'),
       cursor: z.string().optional().describe('Pagination cursor (list, search)'),
       content_format: z.enum(['text/md', 'text/plain']).optional().describe('Content format (pages_list)'),
@@ -32,10 +31,9 @@ export function setupDocTools(server: McpServer): void {
       content: z.string().optional().describe('Doc/page content in HTML format (create, update, pages_create, pages_update)'),
       sub_title: z.string().optional().describe('Page subtitle (pages_create, pages_update)'),
       parent_page_id: z.string().optional().describe('Parent page ID for sub-pages (pages_create)'),
-      template_id: z.string().optional().describe('Create doc from a template (create) — get template ID from templates tool'),
     },
     async ({ action, workspace_id, doc_id, page_id, query, cursor, content_format, deleted, archived, limit,
-             scope_type, scope_id, name, content, sub_title, parent_page_id, template_id }) => {
+             scope_type, scope_id, name, content, sub_title, parent_page_id }) => {
       try {
         switch (action) {
           case 'get': {
@@ -57,16 +55,15 @@ export function setupDocTools(server: McpServer): void {
             return { content: [{ type: 'text', text: JSON.stringify(result.docs) }] };
           }
           case 'create': {
-            if (!scope_type || !scope_id || !name) throw new Error('scope_type, scope_id, and name required for create');
-            const result = scope_type === 'list'
-              ? await docsClient.createDocInList(scope_id, name, content || '', template_id)
-              : await docsClient.createDocInFolder(scope_id, name, content || '', template_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-          }
-          case 'update': {
-            if (!doc_id) throw new Error('doc_id required for update');
-            const result = await docsClient.updateDoc(doc_id, name, content);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+            if (!workspace_id || !scope_type || !scope_id || !name) throw new Error('workspace_id, scope_type, scope_id, and name required for create');
+            const doc = scope_type === 'list'
+              ? await docsClient.createDocInList(workspace_id, scope_id, name)
+              : await docsClient.createDocInFolder(workspace_id, scope_id, name);
+            // The create endpoint makes an empty first page; write the content via a page.
+            if (content && (doc as any)?.id) {
+              await docsClient.createDocPage(workspace_id, (doc as any).id, name, content);
+            }
+            return { content: [{ type: 'text', text: JSON.stringify(doc) }] };
           }
           case 'search': {
             if (!query || !workspace_id) throw new Error('query and workspace_id required for search');
@@ -79,18 +76,13 @@ export function setupDocTools(server: McpServer): void {
             return { content: [{ type: 'text', text: JSON.stringify(pages) }] };
           }
           case 'pages_create': {
-            if (!doc_id || !name) throw new Error('doc_id and name required for pages_create');
-            const result = await docsClient.createDocPage(doc_id, name, content || '', sub_title, parent_page_id);
+            if (!workspace_id || !doc_id || !name) throw new Error('workspace_id, doc_id, and name required for pages_create');
+            const result = await docsClient.createDocPage(workspace_id, doc_id, name, content || '', sub_title, parent_page_id);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
           case 'pages_update': {
-            if (!doc_id || !page_id) throw new Error('doc_id and page_id required for pages_update');
-            const result = await docsClient.updateDocPage(doc_id, page_id, name, content, sub_title);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-          }
-          case 'pages_delete': {
-            if (!doc_id || !page_id) throw new Error('doc_id and page_id required for pages_delete');
-            const result = await docsClient.deleteDocPage(doc_id, page_id);
+            if (!workspace_id || !doc_id || !page_id) throw new Error('workspace_id, doc_id, and page_id required for pages_update');
+            const result = await docsClient.updateDocPage(workspace_id, doc_id, page_id, name, content, sub_title);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }

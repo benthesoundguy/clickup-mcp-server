@@ -33,8 +33,26 @@ export class GoalsClient {
   }
 
   /** Create a key result under a goal. */
-  async createKeyResult(goalId: string, name: string, type: string, targetValue?: number, unit?: string): Promise<any> {
-    return this.client.post(`/goal/${goalId}/key_result`, { name, type, target_value: targetValue, unit });
+  /**
+   * Create a key result (target) on a goal.
+   * @param type one of: number, currency, boolean, percentage, automatic
+   */
+  async createKeyResult(
+    goalId: string,
+    name: string,
+    type: string,
+    opts: { stepsStart?: number; stepsEnd?: number; unit?: string; owners?: number[]; taskIds?: string[]; listIds?: string[] } = {}
+  ): Promise<any> {
+    return this.client.post(`/goal/${goalId}/key_result`, {
+      name,
+      type,
+      steps_start: opts.stepsStart ?? 0,
+      steps_end: opts.stepsEnd ?? 100,
+      unit: opts.unit,
+      owners: opts.owners ?? [],
+      task_ids: opts.taskIds ?? [],
+      list_ids: opts.listIds ?? [],
+    });
   }
 
   /** Update a key result's name. */
