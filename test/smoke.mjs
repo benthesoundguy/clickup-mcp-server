@@ -302,6 +302,26 @@ try {
         const updated = await views.updateView(view.id, { name: `smoke-view-${STAMP}-renamed` });
         if (updated?.name && !updated.name.includes('renamed')) throw new Error(`rename not applied: ${updated.name}`);
       });
+      await step('views set_filters (op key, readback)', async () => {
+        const updated = await views.updateView(view.id, {
+          filters: { op: 'AND', fields: [{ field: 'status', op: 'ANY', values: ['smoke todo'] }], search: '', show_closed: false }
+        });
+        const f = updated?.filters?.fields?.[0];
+        if (!f || f.op !== 'ANY') throw new Error(`filter not persisted: ${JSON.stringify(updated?.filters)}`);
+      });
+      await step('views set_grouping (int dir, readback)', async () => {
+        const updated = await views.updateView(view.id, {
+          grouping: { field: 'status', dir: -1, collapsed: [], ignore: false }
+        });
+        if (updated?.grouping?.dir !== -1) throw new Error(`grouping not persisted: ${JSON.stringify(updated?.grouping)}`);
+      });
+      await step('views set_sorting (sorting key, int dir, readback)', async () => {
+        const updated = await views.updateView(view.id, {
+          sorting: { fields: [{ field: 'dueDate', dir: -1 }] }
+        });
+        const s = updated?.sorting?.fields?.[0];
+        if (!s || s.dir !== -1) throw new Error(`sorting not persisted: ${JSON.stringify(updated?.sorting)}`);
+      });
       await step('views view_tasks', () => views.getViewTasks(view.id));
       await step('views delete', () => views.deleteView(view.id));
       view = undefined;

@@ -27,13 +27,12 @@ export function setupViewTools(server: McpServer): void {
 
       // Configuration fields
       filters: z.array(z.object({
-        field: z.string().describe('Field to filter on, e.g. "status", "assignee", "dueDate"'),
-        operator: z.enum(['IN', 'NOT_IN', 'CONTAINS', 'DOES_NOT_CONTAIN', 'GREATER_THAN', 'LESS_THAN', 'BETWEEN', 'EQUALS', 'NOT_EQUALS', 'IS_EMPTY', 'IS_NOT_EMPTY']),
+        field: z.string().describe('Field to filter on, e.g. "status", "assignee", "dueDate", "tag"'),
+        op: z.string().describe('ClickUp filter operator (field-dependent). Verified working: "EQ", "ANY". Others include "ALL", "NOT ANY", "GT", "LT", "IS SET", "IS NOT SET".'),
         values: z.array(z.any()).optional().describe('Values to compare against')
-      })).optional().describe('Filter objects for set_filters. Example: [{field:"status",operator:"IN",values:["in progress"]}]'),
+      })).optional().describe('Filter objects for set_filters, combined with AND. Example: [{field:"status",op:"ANY",values:["in progress"]}]'),
       group_by: z.string().optional().describe('Field to group by (set_grouping)'),
       group_direction: z.enum(['asc', 'desc']).optional().describe('Grouping direction (set_grouping)'),
-      group_collapsed: z.boolean().optional().describe('Collapse groups by default (set_grouping)'),
       sort_by: z.string().optional().describe('Field to sort by (set_sorting)'),
       sort_direction: z.enum(['asc', 'desc']).optional().describe('Sorting direction (set_sorting)'),
       settings: z.record(z.any()).optional().describe(
@@ -42,7 +41,7 @@ export function setupViewTools(server: McpServer): void {
       // View tasks
       page: z.number().optional().describe('Page number for pagination (view_tasks)'),
     },
-    async ({ action, list_id, view_id, name, type, filters, group_by, group_direction, group_collapsed,
+    async ({ action, list_id, view_id, name, type, filters, group_by, group_direction,
              sort_by, sort_direction, settings, page }) => {
       try {
         switch (action) {
@@ -76,21 +75,29 @@ export function setupViewTools(server: McpServer): void {
           }
           case 'set_filters': {
             if (!view_id || !filters) throw new Error('view_id and filters required for set_filters');
-            const view = await viewsClient.updateView(view_id, { filters: { op: 'AND', fields: filters } });
+            // Real view JSON (probe-verified): filters.fields[].op, container op AND/OR
+            const view = await viewsClient.updateView(view_id, {
+              filters: { op: 'AND', fields: filters, search: '', show_closed: false }
+            });
             return { content: [{ type: 'text', text: JSON.stringify(view) }] };
           }
           case 'set_grouping': {
             if (!view_id || !group_by) throw new Error('view_id and group_by required for set_grouping');
-            const grouping: any = { field: group_by };
-            if (group_direction) grouping.dir = group_direction;
-            if (group_collapsed !== undefined) grouping.collapsed = group_collapsed;
+            // grouping.dir is an integer: 1 = ascending, -1 = descending (probe-verified)
+            const grouping: any = {
+              field: group_by,
+              dir: group_direction === 'desc' ? -1 : 1,
+              collapsed: [],
+              ignore: false
+            };
             const view = await viewsClient.updateView(view_id, { grouping });
             return { content: [{ type: 'text', text: JSON.stringify(view) }] };
           }
           case 'set_sorting': {
             if (!view_id || !sort_by) throw new Error('view_id and sort_by required for set_sorting');
-            const sortings = [{ field: sort_by, dir: sort_direction || 'asc' }];
-            const view = await viewsClient.updateView(view_id, { sortings });
+            // The view key is `sorting` (not `sortings`); dir: 1 = asc, -1 = desc
+            const sorting = { fields: [{ field: sort_by, dir: sort_direction === 'desc' ? -1 : 1 }] };
+            const view = await viewsClient.updateView(view_id, { sorting });
             return { content: [{ type: 'text', text: JSON.stringify(view) }] };
           }
           case 'set_settings': {
