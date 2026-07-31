@@ -1,13 +1,12 @@
 import { ClickUpClient } from './index.js';
 
-export interface CreateDependencyRequest {
-  depends_on: string;
-  dependency_type?: string;
-}
-
-export interface UpdateDependencyRequest {
-  dependency_type?: string;
-}
+// ClickUp v2 exposes exactly two dependency write operations:
+//   POST   /task/{id}/dependency   (body: depends_on OR dependency_of)
+//   DELETE /task/{id}/dependency   (query: depends_on / dependency_of)
+// Everything else (graph analysis, conflicts, workspace-level views) is
+// computed locally — see project-intelligence.ts. The previous versions of
+// this client called ~10 endpoints that do not exist in the public API
+// (verified dead by live probe on 2026-07-31).
 
 export class DependenciesClient {
   private client: ClickUpClient;
@@ -16,73 +15,22 @@ export class DependenciesClient {
     this.client = client;
   }
 
-  // --- CRUD ---
-
+  /** Make taskId depend on dependsOn (taskId is blocked by dependsOn). */
   async addDependency(taskId: string, dependsOn: string): Promise<void> {
     await this.client.post(`/task/${taskId}/dependency`, { depends_on: dependsOn });
   }
 
+  /** Remove the dependency of taskId on dependsOn. */
   async removeDependency(taskId: string, dependsOn: string): Promise<void> {
     await this.client.delete(`/task/${taskId}/dependency`, {
       params: { depends_on: dependsOn }
     });
   }
 
+  /** Read a task's dependencies (returned on the task object). */
   async getTaskDependencies(taskId: string): Promise<any> {
-    const task = await this.client.get(`/task/${taskId}`, { include: ['dependencies'] });
+    const task = await this.client.get(`/task/${taskId}`);
     return task.dependencies || [];
-  }
-
-  async updateDependency(dependencyId: string, dependencyType?: string): Promise<any> {
-    return this.client.put(`/dependency/${dependencyId}`, { dependency_type: dependencyType });
-  }
-
-  async deleteDependency(dependencyId: string): Promise<void> {
-    await this.client.delete(`/dependency/${dependencyId}`);
-  }
-
-  // --- Graph & Analysis ---
-
-  async getDependencyGraph(taskId: string, direction?: 'inbound' | 'outbound'): Promise<any> {
-    return this.client.get(`/task/${taskId}/dependency`, {
-      ...(direction ? { direction } : {})
-    });
-  }
-
-  async checkDependencyConflicts(taskId: string, dependsOn: string): Promise<any> {
-    return this.client.get(`/task/${taskId}/dependency/${dependsOn}/conflict`);
-  }
-
-  async resolveDependencyConflicts(taskId: string): Promise<any> {
-    return this.client.post(`/task/${taskId}/dependency/conflicts/resolve`, {});
-  }
-
-  // --- Bulk ---
-
-  async bulkCreateDependencies(workspaceId: string, dependencies: Array<{ task_id: string; depends_on: string; dependency_type?: string }>): Promise<any> {
-    return this.client.post(`/team/${workspaceId}/dependency`, { dependencies });
-  }
-
-  // --- Workspace-level ---
-
-  async getWorkspaceDependencies(workspaceId: string, page?: number): Promise<any> {
-    return this.client.get(`/team/${workspaceId}/dependency`, page ? { page } : undefined);
-  }
-
-  async getDependencyStats(workspaceId: string): Promise<any> {
-    return this.client.get(`/team/${workspaceId}/dependency/stats`);
-  }
-
-  async getDependencyTimelineImpact(taskId: string): Promise<any> {
-    return this.client.get(`/task/${taskId}/dependency/timeline`);
-  }
-
-  async exportDependencyGraph(workspaceId: string): Promise<any> {
-    return this.client.get(`/team/${workspaceId}/dependency/export`);
-  }
-
-  async importDependencyGraph(workspaceId: string, data: any): Promise<any> {
-    return this.client.post(`/team/${workspaceId}/dependency/import`, data);
   }
 }
 

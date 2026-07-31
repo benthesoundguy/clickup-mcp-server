@@ -6,69 +6,59 @@ import { createChatClient } from '../clickup-client/chat.js';
 const clickUpClient = createClickUpClient();
 const chatClient = createChatClient(clickUpClient);
 
+// ClickUp Chat lives on the v3 API; every operation is scoped to a workspace,
+// so workspace_id is required throughout.
+
 export function setupChatTools(server: McpServer): void {
   // ── Tool 1: channels ──────────────────────────────────────────────────
   server.tool(
     'channels',
-    'Manage ClickUp chat channels. Use action to list, get, create, update, delete, create DM, search, view stats, or mark as read.',
+    'Manage ClickUp chat channels (v3 API). Use action to list, get, create, update, delete a channel, or create/open a direct message.',
     {
-      action: z.enum(['list', 'get', 'create', 'update', 'delete', 'dm', 'search', 'stats', 'mark_read'])
+      action: z.enum(['list', 'get', 'create', 'update', 'delete', 'dm'])
         .describe('Action to perform'),
-      workspace_id: z.string().optional().describe('Required for list, create, dm, search'),
-      channel_id: z.string().optional().describe('Required for get, update, delete, stats, mark_read'),
-      name: z.string().optional().describe('Channel name (create, update, search)'),
-      description: z.string().optional().describe('Channel description (create, update, dm)'),
-      type: z.enum(['public', 'private']).optional().describe('Channel type (create)'),
-      user_ids: z.array(z.number()).optional().describe('User IDs for DM channel (dm)'),
-      team_member_ids: z.array(z.number()).optional().describe('Member IDs to add (create)'),
+      workspace_id: z.string().describe('The workspace ID (required for all actions)'),
+      channel_id: z.string().optional().describe('Required for get, update, delete'),
+      name: z.string().optional().describe('Channel name (required for create; optional for update)'),
+      description: z.string().optional().describe('Channel description (create, update)'),
+      topic: z.string().optional().describe('Channel topic (create, update)'),
+      visibility: z.enum(['PUBLIC', 'PRIVATE']).optional().describe('Channel visibility (create, update)'),
+      archived: z.boolean().optional().describe('Archive/unarchive the channel (update)'),
+      user_ids: z.array(z.string()).optional().describe('User IDs: members to invite (create) or DM participants, 1-10 (dm)'),
+      cursor: z.string().optional().describe('Pagination cursor (list)'),
+      limit: z.number().optional().describe('Max results per page (list)'),
     },
-    async ({ action, workspace_id, channel_id, name, description, type, user_ids, team_member_ids }) => {
+    async ({ action, workspace_id, channel_id, name, description, topic, visibility, archived, user_ids, cursor, limit }) => {
       try {
         switch (action) {
           case 'list': {
-            if (!workspace_id) throw new Error('workspace_id required for list');
-            const result = await chatClient.getChannels(workspace_id);
+            const result = await chatClient.getChannels(workspace_id, { cursor, limit });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'get': {
             if (!channel_id) throw new Error('channel_id required for get');
-            const result = await chatClient.getChannel(channel_id);
+            const result = await chatClient.getChannel(workspace_id, channel_id);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'create': {
-            if (!workspace_id || !name) throw new Error('workspace_id and name required for create');
-            const result = await chatClient.createChannel(workspace_id, { name, type, team_member_ids, description });
+            if (!name) throw new Error('name required for create');
+            const result = await chatClient.createChannel(workspace_id, { name, description, topic, visibility, user_ids });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'update': {
             if (!channel_id) throw new Error('channel_id required for update');
-            const result = await chatClient.updateChannel(channel_id, name, description);
+            const result = await chatClient.updateChannel(workspace_id, channel_id, { name, description, topic, visibility, archived });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'delete': {
             if (!channel_id) throw new Error('channel_id required for delete');
-            await chatClient.deleteChannel(channel_id);
+            await chatClient.deleteChannel(workspace_id, channel_id);
             return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
           }
           case 'dm': {
-            if (!workspace_id || !user_ids?.length) throw new Error('workspace_id and user_ids required for dm');
-            const result = await chatClient.createDirectMessage(workspace_id, { user_ids, description });
+            if (!user_ids?.length) throw new Error('user_ids required for dm');
+            const result = await chatClient.createDirectMessage(workspace_id, user_ids);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'search': {
-            if (!workspace_id || !name) throw new Error('workspace_id and name (query) required for search');
-            const result = await chatClient.searchChannels(workspace_id, name);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'stats': {
-            if (!channel_id) throw new Error('channel_id required for stats');
-            const result = await chatClient.getChannelStats(channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'mark_read': {
-            if (!channel_id) throw new Error('channel_id required for mark_read');
-            await chatClient.markChannelAsRead(channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
           }
         }
       } catch (error: any) {
@@ -78,133 +68,108 @@ export function setupChatTools(server: McpServer): void {
     }
   );
 
-  // ── Tool 2: channels_members ─────────────────────────────────────────
-  server.tool(
-    'channels_members',
-    'Manage members of a ClickUp chat channel. Use action to list members, list followers, add, or remove.',
-    {
-      action: z.enum(['list', 'followers', 'add', 'remove']).describe('Action to perform'),
-      channel_id: z.string().describe('The ID of the channel'),
-      user_id: z.number().optional().describe('Required for add/remove: the user ID'),
-    },
-    async ({ action, channel_id, user_id }) => {
-      try {
-        switch (action) {
-          case 'list': {
-            const result = await chatClient.getChannelMembers(channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'followers': {
-            const result = await chatClient.getChannelFollowers(channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'add': {
-            if (!user_id) throw new Error('user_id required for add');
-            await chatClient.addChannelMember(channel_id, user_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
-          }
-          case 'remove': {
-            if (!user_id) throw new Error('user_id required for remove');
-            await chatClient.removeChannelMember(channel_id, user_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
-          }
-        }
-      } catch (error: any) {
-        console.error('[ChatTools] Error:', error);
-        return { content: [{ type: 'text', text: `Error with channel members: ${error.message}` }], isError: true };
-      }
-    }
-  );
-
-  // ── Tool 3: channels_messages ────────────────────────────────────────
+  // ── Tool 2: channels_messages ─────────────────────────────────────────
   server.tool(
     'channels_messages',
-    'Manage messages in a ClickUp chat channel. Use action to list, send, update, delete, manage replies, reactions, tagged users, unread count, or search messages.',
+    'Work with ClickUp chat messages (v3 API). Use action to list channel messages, send, update, delete, '
+    + 'list/create replies, list/create/delete reactions, or get tagged users.',
     {
       action: z.enum([
         'list', 'send', 'update', 'delete',
         'replies_list', 'replies_create',
         'reactions_list', 'reactions_create', 'reactions_delete',
-        'tagged_users', 'unread', 'search'
+        'tagged_users'
       ]).describe('Action to perform'),
-      channel_id: z.string().optional().describe('Required for list, send, reactions, tagged, unread, search'),
-      message_id: z.string().optional().describe('Required for update, delete, replies, reactions'),
-      workspace_id: z.string().optional().describe('Required for search'),
-      content: z.string().optional().describe('Message content (send, update, replies_create)'),
-      reaction: z.string().optional().describe('Reaction emoji/text (reactions_create, reactions_delete)'),
-      query: z.string().optional().describe('Search query (search)'),
-      parent_message_id: z.string().optional().describe('Parent message for threaded reply (send)'),
-      cursor: z.string().optional().describe('Pagination cursor (list, replies_list)'),
-      limit: z.number().optional().describe('Max results (list, replies_list)'),
-      content_format: z.enum(['text/md', 'text/plain']).optional().describe('Content format (list, replies_list)'),
+      workspace_id: z.string().describe('The workspace ID (required for all actions)'),
+      channel_id: z.string().optional().describe('Required for list, send'),
+      message_id: z.string().optional().describe('Required for update, delete, replies_*, reactions_*, tagged_users'),
+      content: z.string().optional().describe('Message text (required for send, update, replies_create)'),
+      content_format: z.enum(['text/md', 'text/plain']).optional().describe('Content format (default text/md)'),
+      reaction: z.string().optional().describe('Reaction emoji name (required for reactions_create, reactions_delete)'),
+      cursor: z.string().optional().describe('Pagination cursor (list-style actions)'),
+      limit: z.number().optional().describe('Max results per page (list-style actions)'),
     },
-    async ({ action, channel_id, message_id, workspace_id, content, reaction, query, parent_message_id, cursor, limit, content_format }) => {
+    async ({ action, workspace_id, channel_id, message_id, content, content_format, reaction, cursor, limit }) => {
       try {
         switch (action) {
           case 'list': {
             if (!channel_id) throw new Error('channel_id required for list');
-            const result = await chatClient.getChannelMessages(channel_id, { cursor, limit, content_format });
+            const result = await chatClient.getChannelMessages(workspace_id, channel_id, { cursor, limit, content_format });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'send': {
             if (!channel_id || !content) throw new Error('channel_id and content required for send');
-            const result = await chatClient.sendMessage(channel_id, { content, parent_message_id, content_format });
+            const result = await chatClient.sendMessage(workspace_id, channel_id, { content, content_format });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'update': {
             if (!message_id || !content) throw new Error('message_id and content required for update');
-            const result = await chatClient.updateMessage(message_id, content);
+            const result = await chatClient.updateMessage(workspace_id, message_id, content, content_format);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'delete': {
             if (!message_id) throw new Error('message_id required for delete');
-            await chatClient.deleteMessage(message_id);
+            await chatClient.deleteMessage(workspace_id, message_id);
             return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
           }
           case 'replies_list': {
             if (!message_id) throw new Error('message_id required for replies_list');
-            const result = await chatClient.getMessageReplies(message_id, { cursor, limit, content_format });
+            const result = await chatClient.getMessageReplies(workspace_id, message_id, { cursor, limit, content_format });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'replies_create': {
             if (!message_id || !content) throw new Error('message_id and content required for replies_create');
-            const result = await chatClient.createReply(message_id, content);
+            const result = await chatClient.createReply(workspace_id, message_id, { content, content_format });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'reactions_list': {
-            if (!channel_id || !message_id) throw new Error('channel_id and message_id required for reactions_list');
-            const result = await chatClient.getMessageReactions(channel_id, message_id);
+            if (!message_id) throw new Error('message_id required for reactions_list');
+            const result = await chatClient.getMessageReactions(workspace_id, message_id, { cursor, limit });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'reactions_create': {
             if (!message_id || !reaction) throw new Error('message_id and reaction required for reactions_create');
-            await chatClient.createMessageReaction(message_id, reaction);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
+            const result = await chatClient.createMessageReaction(workspace_id, message_id, reaction);
+            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'reactions_delete': {
             if (!message_id || !reaction) throw new Error('message_id and reaction required for reactions_delete');
-            await chatClient.deleteMessageReaction(message_id, reaction);
+            await chatClient.deleteMessageReaction(workspace_id, message_id, reaction);
             return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
           }
           case 'tagged_users': {
-            if (!channel_id || !message_id) throw new Error('channel_id and message_id required for tagged_users');
-            const result = await chatClient.getTaggedUsers(channel_id, message_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'unread': {
-            if (!channel_id) throw new Error('channel_id required for unread');
-            const result = await chatClient.getUnreadCount(channel_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'search': {
-            if (!workspace_id || !query) throw new Error('workspace_id and query required for search');
-            const result = await chatClient.searchMessages(workspace_id, query);
+            if (!message_id) throw new Error('message_id required for tagged_users');
+            const result = await chatClient.getTaggedUsers(workspace_id, message_id);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
         }
       } catch (error: any) {
         console.error('[ChatTools] Error:', error);
-        return { content: [{ type: 'text', text: `Error with channel messages: ${error.message}` }], isError: true };
+        return { content: [{ type: 'text', text: `Error with messages: ${error.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── Tool 3: channels_members ──────────────────────────────────────────
+  server.tool(
+    'channels_members',
+    'List the members or followers of a ClickUp chat channel (v3 API).',
+    {
+      action: z.enum(['list', 'followers']).describe('list = channel members; followers = channel followers'),
+      workspace_id: z.string().describe('The workspace ID'),
+      channel_id: z.string().describe('The channel ID'),
+      cursor: z.string().optional().describe('Pagination cursor'),
+      limit: z.number().optional().describe('Max results per page'),
+    },
+    async ({ action, workspace_id, channel_id, cursor, limit }) => {
+      try {
+        const result = action === 'list'
+          ? await chatClient.getChannelMembers(workspace_id, channel_id, { cursor, limit })
+          : await chatClient.getChannelFollowers(workspace_id, channel_id, { cursor, limit });
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        console.error('[ChatTools] Error:', error);
+        return { content: [{ type: 'text', text: `Error with channel members: ${error.message}` }], isError: true };
       }
     }
   );

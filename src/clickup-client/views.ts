@@ -7,6 +7,10 @@ export interface View {
   [key: string]: any;
 }
 
+// NOTE: view duplicate (POST /view/{id}/duplicate) and sharing
+// (POST/DELETE /view/{id}/share) were removed — live probing (2026-07-31)
+// confirmed those routes do not exist in the public API.
+
 export class ViewsClient {
   private client: ClickUpClient;
 
@@ -20,21 +24,29 @@ export class ViewsClient {
     return res.views;
   }
 
-  /** Create a view on a list. Returns { view: { id, name, type, ... } }. */
+  /** Create a view on a list. */
   async createListView(listId: string, name: string, type: number): Promise<View> {
     const res = await this.client.post<any>(`/list/${listId}/view`, { name, type });
     return res.view;
   }
 
-  /** Get a specific view by ID. */
+  /** Get a specific view by ID. Returns the bare view object. */
   async getView(viewId: string): Promise<View> {
-    return this.client.get<View>(`/view/${viewId}`);
+    const res = await this.client.get<any>(`/view/${viewId}`);
+    return res.view ?? res;
   }
 
-  /** Update a view. */
-  async updateView(viewId: string, params: Record<string, any>): Promise<View> {
-    const res = await this.client.put<any>(`/view/${viewId}`, params);
-    return res.view;
+  /**
+   * Update a view. ClickUp's PUT /view/{id} expects the FULL view object —
+   * sending a partial body clobbers or rejects unsent fields — so this
+   * performs a read-modify-write: fetch the current view, merge the changes,
+   * send the whole thing back.
+   */
+  async updateView(viewId: string, changes: Record<string, any>): Promise<View> {
+    const current = await this.getView(viewId);
+    const merged = { ...current, ...changes };
+    const res = await this.client.put<any>(`/view/${viewId}`, merged);
+    return res.view ?? res;
   }
 
   /** Delete a view. */
@@ -42,25 +54,9 @@ export class ViewsClient {
     await this.client.delete(`/view/${viewId}`);
   }
 
-  /** Duplicate a view. */
-  async duplicateView(viewId: string, name: string, includeContent?: boolean): Promise<View> {
-    const res = await this.client.post<any>(`/view/${viewId}/duplicate`, { name, include_content: includeContent ?? true });
-    return res.view;
-  }
-
   /** Get tasks displayed in a view. */
   async getViewTasks(viewId: string, page?: number): Promise<{ tasks: any[] }> {
-    return this.client.get<any>(`/view/${viewId}/task`, page ? { page } : undefined);
-  }
-
-  /** Add sharing to a view. */
-  async addViewSharing(viewId: string, type: string, id: string, permissionLevel?: string): Promise<any> {
-    return this.client.post(`/view/${viewId}/share`, { type, id, permission_level: permissionLevel });
-  }
-
-  /** Remove sharing from a view. */
-  async removeViewSharing(viewId: string, type: string, id: string): Promise<any> {
-    return this.client.delete(`/view/${viewId}/share`, { params: { type, id } });
+    return this.client.get<any>(`/view/${viewId}/task`, page !== undefined ? { page } : undefined);
   }
 }
 

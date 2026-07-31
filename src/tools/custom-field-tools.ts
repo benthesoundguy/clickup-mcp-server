@@ -9,21 +9,22 @@ const customFieldsClient = createCustomFieldsClient(clickUpClient);
 export function setupCustomFieldTools(server: McpServer): void {
   server.tool(
     'custom_fields',
-    'List, create, update, or delete custom field definitions. Use "list" to get field schemas, "create" to add a field, "update" to modify it, or "delete" to remove it.',
+    'List or create custom field definitions. Use "list" to get field schemas at any scope, '
+    + 'or "create" to add a field to a list. (The ClickUp API does not support editing or '
+    + 'deleting field definitions — that requires the ClickUp UI.)',
     {
-      action: z.enum(['list', 'create', 'update', 'delete']).describe('Action to perform'),
-      scope_type: z.enum(['list', 'folder', 'space', 'workspace']).optional().describe('The scope level (list, create)'),
-      scope_id: z.string().optional().describe('The ID of the list, folder, space, or workspace (list, create)'),
-      field_id: z.string().optional().describe('Required for update, delete: the custom field ID'),
-      name: z.string().optional().describe('Required for create: the field name. Optional for update.'),
-      type: z.string().optional().describe('Required for create: field type (text, number, date, checkbox, dropdown, etc.)'),
-      required: z.boolean().optional().describe('Whether the field is required'),
+      action: z.enum(['list', 'create']).describe('Action to perform'),
+      scope_type: z.enum(['list', 'folder', 'space', 'workspace']).optional().describe('The scope level (list action). Create always targets a list.'),
+      scope_id: z.string().optional().describe('The ID of the list, folder, space, or workspace'),
+      name: z.string().optional().describe('Required for create: the field name'),
+      type: z.string().optional().describe('Required for create: field type (text, number, date, checkbox, drop_down, etc.)'),
+      required: z.boolean().optional().describe('Whether the field is required (create)'),
       options: z.array(z.object({
         name: z.string(),
         orderindex: z.number()
-      })).optional().describe('Dropdown options (required for dropdown type)'),
+      })).optional().describe('Dropdown options (required for drop_down type)'),
     },
-    async ({ action, scope_type, scope_id, field_id, name, type, required, options }) => {
+    async ({ action, scope_type, scope_id, name, type, required, options }) => {
       try {
         switch (action) {
           case 'list': {
@@ -38,20 +39,9 @@ export function setupCustomFieldTools(server: McpServer): void {
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'create': {
-            if (!scope_id || !name || !type) throw new Error('scope_id, name, and type required for create');
+            if (!scope_id || !name || !type) throw new Error('scope_id (a list ID), name, and type required for create');
             const result = await customFieldsClient.createField(scope_id, { name, type, required, options });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'update': {
-            if (!field_id) throw new Error('field_id required for update');
-            const mappedOptions = options?.map(o => ({ name: o.name, orderindex: o.orderindex ?? 0 }));
-            const result = await customFieldsClient.updateField(field_id, { name, required, options: mappedOptions });
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'delete': {
-            if (!field_id) throw new Error('field_id required for delete');
-            await customFieldsClient.deleteField(field_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true }, null, 2) }] };
           }
         }
       } catch (error: any) {

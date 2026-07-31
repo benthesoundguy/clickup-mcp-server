@@ -12,30 +12,38 @@ export function setupGroupTools(server: McpServer): void {
     'Manage user groups in a ClickUp workspace. Use action to list, create, update, or delete groups.',
     {
       action: z.enum(['list', 'create', 'update', 'delete']).describe('Action to perform'),
-      workspace_id: z.string().describe('The ID of the workspace'),
+      workspace_id: z.string().optional().describe('Required for list/create: the workspace ID'),
       group_id: z.string().optional().describe('Required for update/delete: the group ID'),
-      name: z.string().optional().describe('Required for create: the group name. Optional for update.')
+      name: z.string().optional().describe('Required for create: the group name. Optional for update.'),
+      add_members: z.array(z.number()).optional().describe('User IDs to add to the group (create/update)'),
+      remove_members: z.array(z.number()).optional().describe('User IDs to remove from the group (update)')
     },
-    async ({ action, workspace_id, group_id, name }) => {
+    async ({ action, workspace_id, group_id, name, add_members, remove_members }) => {
       try {
         switch (action) {
           case 'list': {
+            if (!workspace_id) throw new Error('workspace_id is required for list');
             const result = await groupsClient.getGroups(workspace_id);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'create': {
-            if (!name) throw new Error('name is required for create');
-            const result = await groupsClient.createGroup(workspace_id, name);
+            if (!workspace_id || !name) throw new Error('workspace_id and name are required for create');
+            const result = await groupsClient.createGroup(workspace_id, name, add_members);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'update': {
-            if (!group_id || !name) throw new Error('group_id and name are required for update');
-            const result = await groupsClient.updateGroup(workspace_id, group_id, name);
+            if (!group_id) throw new Error('group_id is required for update');
+            const changes: { name?: string; members?: { add?: number[]; rem?: number[] } } = {};
+            if (name) changes.name = name;
+            if (add_members?.length || remove_members?.length) {
+              changes.members = { add: add_members, rem: remove_members };
+            }
+            const result = await groupsClient.updateGroup(group_id, changes);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
           case 'delete': {
             if (!group_id) throw new Error('group_id is required for delete');
-            const result = await groupsClient.deleteGroup(workspace_id, group_id);
+            const result = await groupsClient.deleteGroup(group_id);
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
         }

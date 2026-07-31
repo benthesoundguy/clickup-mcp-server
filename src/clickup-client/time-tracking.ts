@@ -58,7 +58,7 @@ export class TimeTrackingClient {
    * @returns The created time entry
    */
   async createTimeEntry(teamId: string, data: CreateTimeEntryData): Promise<any> {
-    return this.client.post(`/team/${teamId}/time_entry`, data);
+    return this.client.post(`/team/${teamId}/time_entries`, data);
   }
 
   /**
@@ -69,7 +69,7 @@ export class TimeTrackingClient {
    * @returns The updated time entry
    */
   async updateTimeEntry(teamId: string, entryId: string, data: UpdateTimeEntryData): Promise<any> {
-    return this.client.put(`/team/${teamId}/time_entry/${entryId}`, data);
+    return this.client.put(`/team/${teamId}/time_entries/${entryId}`, data);
   }
 
   /**
@@ -79,7 +79,7 @@ export class TimeTrackingClient {
    * @returns Success confirmation
    */
   async deleteTimeEntry(teamId: string, entryId: string): Promise<any> {
-    return this.client.delete(`/team/${teamId}/time_entry/${entryId}`);
+    return this.client.delete(`/team/${teamId}/time_entries/${entryId}`);
   }
 
   /**
@@ -110,15 +110,6 @@ export class TimeTrackingClient {
     return this.client.get(`/team/${teamId}/time_entries/current`);
   }
 
-  /**
-   * Remove tags from a time entry
-   * @param teamId The ID of the team (workspace)
-   * @param entryId The ID of the time entry
-   * @returns Success confirmation
-   */
-  async removeTags(teamId: string, entryId: string): Promise<any> {
-    return this.client.delete(`/team/${teamId}/time_entries/${entryId}/tags`);
-  }
 }
 
 export const createTimeTrackingClient = (client: ClickUpClient): TimeTrackingClient =>

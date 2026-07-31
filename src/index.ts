@@ -21,7 +21,6 @@ import { setupGroupTools } from './tools/group-tools.js';
 import { setupTemplateTools } from './tools/template-tools.js';
 import { setupAttachmentTools } from './tools/attachment-tools.js';
 import { setupReminderTools } from './tools/reminder-tools.js';
-import { setupSearchTools } from './tools/search-tools.js';
 import { setupStatusTools } from './tools/status-tools.js';
 import { setupProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
 
@@ -77,7 +76,6 @@ class ClickUpServer {
     setupTemplateTools(this.server);
     setupAttachmentTools(this.server);
     setupReminderTools(this.server);
-    setupSearchTools(this.server);
     setupStatusTools(this.server);
     setupProjectIntelligenceTools(this.server);
   }

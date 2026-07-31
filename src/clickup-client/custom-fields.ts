@@ -89,19 +89,10 @@ export class CustomFieldsClient {
     return this.client.delete(`/task/${taskId}/field/${fieldId}`);
   }
 
-  /**
-   * Update a custom field definition.
-   */
-  async updateField(fieldId: string, params: { name?: string; required?: boolean; options?: Array<{ id?: string; name: string; orderindex?: number; color?: string }> }): Promise<any> {
-    return this.client.put(`/field/${fieldId}`, params);
-  }
-
-  /**
-   * Delete a custom field definition.
-   */
-  async deleteField(fieldId: string): Promise<any> {
-    return this.client.delete(`/field/${fieldId}`);
-  }
+  // NOTE: field definition update (PUT /field/{id}) and delete
+  // (DELETE /field/{id}) were removed — live probing (2026-07-31) confirmed
+  // those routes do not exist. Field definitions can be created and read,
+  // but only edited/deleted in the ClickUp UI.
 
   /**
    * Set custom field values on multiple tasks.

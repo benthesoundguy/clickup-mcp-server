@@ -191,6 +191,10 @@ export class ClickUpClient {
     return this.request<T>('PUT', endpoint, { body: data, api: opts?.api });
   }
 
+  async patch<T = any>(endpoint: string, data?: unknown, opts?: Pick<RequestOptions, 'api'>): Promise<T> {
+    return this.request<T>('PATCH', endpoint, { body: data, api: opts?.api });
+  }
+
   async delete<T = any>(endpoint: string, config?: { params?: object; api?: ApiVersion }): Promise<T> {
     return this.request<T>('DELETE', endpoint, { params: config?.params, api: config?.api });
   }

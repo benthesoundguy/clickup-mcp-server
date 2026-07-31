@@ -1,39 +1,47 @@
 import { ClickUpClient } from './index.js';
 
-export interface GetChannelMessagesParams {
+// ClickUp Chat API v3 client.
+// Every route lives under /api/v3/workspaces/{workspace_id}/chat/...
+// (verified live 2026-07-31 — the previous v2-shaped /workspace/{id}/channel
+// paths do not exist). All operations therefore require a workspace_id.
+
+export interface GetChannelsParams {
   cursor?: string;
   limit?: number;
-  content_format?: string;
-}
-
-export interface SendMessageParams {
-  content: string;
-  parent_message_id?: string;
-  type?: string;
-  content_format?: string;
-  assignee?: string;
-  group_assignee?: string;
-  followers?: string[];
-  post_title?: string;
-  post_subtype_id?: string;
-}
-
-export interface GetMessageRepliesParams {
-  cursor?: string;
-  limit?: number;
-  content_format?: string;
+  description_format?: string;   // text/md or text/plain
+  is_follower?: boolean;
+  include_hidden?: boolean;
+  room_types?: string[];         // e.g. CHANNEL, DM, GROUP_DM
 }
 
 export interface CreateChannelRequest {
   name: string;
-  type?: 'public' | 'private';
-  team_member_ids?: number[];
   description?: string;
+  topic?: string;
+  user_ids?: string[];
+  visibility?: 'PUBLIC' | 'PRIVATE';
 }
 
-export interface CreateDirectMessageRequest {
-  user_ids: number[];
+export interface UpdateChannelRequest {
+  name?: string;
   description?: string;
+  topic?: string;
+  visibility?: 'PUBLIC' | 'PRIVATE';
+  content_format?: string;
+  archived?: boolean;
+}
+
+export interface GetMessagesParams {
+  cursor?: string;
+  limit?: number;
+  content_format?: string;
+}
+
+export interface SendMessageRequest {
+  content: string;
+  content_format?: string;       // text/md (default) or text/plain
+  type?: string;                 // "message" (default)
+  post_data?: { title?: string; subtype?: { id: string } };
 }
 
 export class ChatClient {
@@ -43,124 +51,104 @@ export class ChatClient {
     this.client = client;
   }
 
-  // --- Channel Management ---
-
-  async getChannels(workspaceId: string): Promise<any> {
-    return this.client.get(`/workspace/${workspaceId}/channel`);
+  private chatPath(workspaceId: string, rest: string): string {
+    return `/workspaces/${workspaceId}/chat${rest}`;
   }
 
-  async getChannel(channelId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}`);
+  // ── Channels ─────────────────────────────────────────────────────────
+
+  async getChannels(workspaceId: string, params?: GetChannelsParams): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, '/channels'), params, { api: 'v3' });
+  }
+
+  async getChannel(workspaceId: string, channelId: string): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/channels/${channelId}`), undefined, { api: 'v3' });
   }
 
   async createChannel(workspaceId: string, request: CreateChannelRequest): Promise<any> {
-    return this.client.post(`/workspace/${workspaceId}/channel`, request);
+    return this.client.post(this.chatPath(workspaceId, '/channels'), request, { api: 'v3' });
   }
 
-  async createDirectMessage(workspaceId: string, request: CreateDirectMessageRequest): Promise<any> {
-    return this.client.post(`/workspace/${workspaceId}/channel`, {
-      ...request,
-      type: 'direct'
-    });
+  /** Create (or fetch existing) direct message between the authorized user and the given users. */
+  async createDirectMessage(workspaceId: string, userIds: string[]): Promise<any> {
+    return this.client.post(this.chatPath(workspaceId, '/channels/direct_message'), { user_ids: userIds }, { api: 'v3' });
   }
 
-  async updateChannel(channelId: string, name?: string, description?: string): Promise<any> {
-    const body: any = {};
-    if (name !== undefined) body.name = name;
-    if (description !== undefined) body.description = description;
-    return this.client.put(`/channel/${channelId}`, body);
+  async updateChannel(workspaceId: string, channelId: string, changes: UpdateChannelRequest): Promise<any> {
+    return this.client.patch(this.chatPath(workspaceId, `/channels/${channelId}`), changes, { api: 'v3' });
   }
 
-  async deleteChannel(channelId: string): Promise<any> {
-    return this.client.delete(`/channel/${channelId}`);
+  async deleteChannel(workspaceId: string, channelId: string): Promise<any> {
+    return this.client.delete(this.chatPath(workspaceId, `/channels/${channelId}`), { api: 'v3' });
   }
 
-  async searchChannels(workspaceId: string, query: string): Promise<any> {
-    return this.client.get(`/workspace/${workspaceId}/channel`, { name: query });
+  // ── Channel people ───────────────────────────────────────────────────
+
+  async getChannelMembers(workspaceId: string, channelId: string, params?: { cursor?: string; limit?: number }): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/channels/${channelId}/members`), params, { api: 'v3' });
   }
 
-  async getChannelStats(channelId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}`);
+  async getChannelFollowers(workspaceId: string, channelId: string, params?: { cursor?: string; limit?: number }): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/channels/${channelId}/followers`), params, { api: 'v3' });
   }
 
-  async markChannelAsRead(channelId: string): Promise<any> {
-    return this.client.post(`/channel/${channelId}/read`, {});
+  // ── Messages ─────────────────────────────────────────────────────────
+
+  async getChannelMessages(workspaceId: string, channelId: string, params?: GetMessagesParams): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/channels/${channelId}/messages`), params, { api: 'v3' });
   }
 
-  // --- Channel Members ---
-
-  async getChannelMembers(channelId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}/member`);
+  async sendMessage(workspaceId: string, channelId: string, message: SendMessageRequest): Promise<any> {
+    return this.client.post(
+      this.chatPath(workspaceId, `/channels/${channelId}/messages`),
+      { type: 'message', ...message },
+      { api: 'v3' }
+    );
   }
 
-  async getChannelFollowers(channelId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}/follower`);
+  async updateMessage(workspaceId: string, messageId: string, content: string, contentFormat?: string): Promise<any> {
+    const body: Record<string, unknown> = { content };
+    if (contentFormat) body.content_format = contentFormat;
+    return this.client.patch(this.chatPath(workspaceId, `/messages/${messageId}`), body, { api: 'v3' });
   }
 
-  async addChannelMember(channelId: string, userId: number): Promise<any> {
-    return this.client.post(`/channel/${channelId}/member`, { user_id: userId });
+  async deleteMessage(workspaceId: string, messageId: string): Promise<any> {
+    return this.client.delete(this.chatPath(workspaceId, `/messages/${messageId}`), { api: 'v3' });
   }
 
-  async removeChannelMember(channelId: string, userId: number): Promise<any> {
-    return this.client.delete(`/channel/${channelId}/member/${userId}`);
+  // ── Replies ──────────────────────────────────────────────────────────
+
+  async getMessageReplies(workspaceId: string, messageId: string, params?: GetMessagesParams): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/messages/${messageId}/replies`), params, { api: 'v3' });
   }
 
-  // --- Messages ---
-
-  async getChannelMessages(channelId: string, params?: GetChannelMessagesParams): Promise<any> {
-    return this.client.get(`/channel/${channelId}/message`, params);
+  async createReply(workspaceId: string, messageId: string, message: SendMessageRequest): Promise<any> {
+    return this.client.post(
+      this.chatPath(workspaceId, `/messages/${messageId}/replies`),
+      { type: 'message', ...message },
+      { api: 'v3' }
+    );
   }
 
-  async sendMessage(channelId: string, params: SendMessageParams): Promise<any> {
-    return this.client.post(`/channel/${channelId}/message`, params);
+  // ── Reactions & mentions ─────────────────────────────────────────────
+
+  async getMessageReactions(workspaceId: string, messageId: string, params?: { cursor?: string; limit?: number }): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/messages/${messageId}/reactions`), params, { api: 'v3' });
   }
 
-  async updateMessage(messageId: string, content: string): Promise<any> {
-    return this.client.put(`/message/${messageId}`, { content });
+  async createMessageReaction(workspaceId: string, messageId: string, reaction: string): Promise<any> {
+    return this.client.post(this.chatPath(workspaceId, `/messages/${messageId}/reactions`), { reaction }, { api: 'v3' });
   }
 
-  async deleteMessage(messageId: string): Promise<any> {
-    return this.client.delete(`/message/${messageId}`);
+  async deleteMessageReaction(workspaceId: string, messageId: string, reaction: string): Promise<any> {
+    return this.client.delete(this.chatPath(workspaceId, `/messages/${messageId}/reactions/${encodeURIComponent(reaction)}`), { api: 'v3' });
   }
 
-  // --- Threaded Replies ---
-
-  async getMessageReplies(messageId: string, params?: GetMessageRepliesParams): Promise<any> {
-    return this.client.get(`/message/${messageId}/reply`, params);
-  }
-
-  async createReply(messageId: string, content: string): Promise<any> {
-    return this.client.post(`/message/${messageId}/reply`, { content });
-  }
-
-  // --- Reactions ---
-
-  async getMessageReactions(channelId: string, messageId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}/message/${messageId}/reaction`);
-  }
-
-  async createMessageReaction(messageId: string, reaction: string): Promise<any> {
-    return this.client.post(`/message/${messageId}/reaction`, { reaction });
-  }
-
-  async deleteMessageReaction(messageId: string, reaction: string): Promise<any> {
-    return this.client.delete(`/message/${messageId}/reaction/${reaction}`);
-  }
-
-  // --- Extended ---
-
-  async getTaggedUsers(channelId: string, messageId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}/message/${messageId}/tagged`);
-  }
-
-  async getUnreadCount(channelId: string): Promise<any> {
-    return this.client.get(`/channel/${channelId}/unread`);
-  }
-
-  async searchMessages(workspaceId: string, query: string): Promise<any> {
-    return this.client.post(`/workspace/${workspaceId}/message/search`, { query });
+  async getTaggedUsers(workspaceId: string, messageId: string): Promise<any> {
+    return this.client.get(this.chatPath(workspaceId, `/messages/${messageId}/tagged_users`), undefined, { api: 'v3' });
   }
 }
 
-export const createChatClient = (client: ClickUpClient): ChatClient =>
-  new ChatClient(client);
+export const createChatClient = (client: ClickUpClient): ChatClient => {
+  return new ChatClient(client);
+};

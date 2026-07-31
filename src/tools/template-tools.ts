@@ -9,30 +9,17 @@ const templatesClient = createTemplatesClient(clickUpClient);
 export function setupTemplateTools(server: McpServer): void {
   server.tool(
     'templates',
-    'Get available templates in a ClickUp workspace. Scope type determines which templates are returned (task, list, or folder templates).',
+    'Get available task templates in a ClickUp workspace. (The API only exposes task '
+    + 'templates; to create a list from a list template use lists_create_from_template_in_folder '
+    + 'or lists_create_from_template_in_space.)',
     {
       workspace_id: z.string().describe('The ID of the workspace'),
-      scope_type: z.enum(['task', 'list', 'folder']).describe('The type of templates to get'),
-      scope_id: z.string().optional().describe('The ID of the list or folder (required for list/folder scope)')
+      page: z.number().optional().describe('Page number (0-based, default 0)')
     },
-    async ({ workspace_id, scope_type, scope_id }) => {
+    async ({ workspace_id, page }) => {
       try {
-        switch (scope_type) {
-          case 'task': {
-            const result = await templatesClient.getTaskTemplates(workspace_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'list': {
-            if (!scope_id) throw new Error('scope_id is required for list templates');
-            const result = await templatesClient.getListTemplates(workspace_id, scope_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-          case 'folder': {
-            if (!scope_id) throw new Error('scope_id is required for folder templates');
-            const result = await templatesClient.getFolderTemplates(workspace_id, scope_id);
-            return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-          }
-        }
+        const result = await templatesClient.getTaskTemplates(workspace_id, page ?? 0);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (error: any) {
         console.error('[TemplateTools] Error:', error);
         return { content: [{ type: 'text', text: `Error getting templates: ${error.message}` }], isError: true };

@@ -1,20 +1,16 @@
 import { ClickUpClient } from './index.js';
 
+// Only task template listing exists in the public API
+// (GET /team/{id}/taskTemplate — verified live 2026-07-31; the previous
+// /task/template path and the list/folder item-template paths are dead).
+// Lists CAN still be created from templates — see lists.ts
+// createListFromTemplateInFolder / createListFromTemplateInSpace.
+
 export function createTemplatesClient(client: ClickUpClient) {
   return {
-    /** Get all task templates in a workspace. */
-    async getTaskTemplates(workspaceId: string): Promise<any> {
-      return client.get(`/team/${workspaceId}/task/template`);
-    },
-
-    /** Get all list item templates in a workspace list. */
-    async getListTemplates(workspaceId: string, listId: string): Promise<any> {
-      return client.get(`/team/${workspaceId}/list/${listId}/item/template`);
-    },
-
-    /** Get all folder item templates in a workspace folder. */
-    async getFolderTemplates(workspaceId: string, folderId: string): Promise<any> {
-      return client.get(`/team/${workspaceId}/folder/${folderId}/item/template`);
+    /** Get task templates in a workspace (paged, 0-based). */
+    async getTaskTemplates(workspaceId: string, page: number = 0): Promise<any> {
+      return client.get(`/team/${workspaceId}/taskTemplate`, { page });
     }
   };
 }

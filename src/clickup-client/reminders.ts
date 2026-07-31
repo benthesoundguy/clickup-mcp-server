@@ -1,15 +1,14 @@
 import { ClickUpClient } from './index.js';
 
+// ClickUp's reminders API is CREATE-ONLY. Live probing (2026-07-31) confirmed
+// POST /reminder exists (validates due_date), while GET/PUT/DELETE /reminder
+// and every list-style variant return bare 404/405 — reminders cannot be
+// read, updated, or deleted via the public API.
+
 export function createRemindersClient(client: ClickUpClient) {
   return {
-    async getReminders(params?: { due_date_status?: string; reminder_type?: string; is_overdue?: boolean; is_completed?: boolean; cursor?: string; limit?: number }): Promise<any> {
-      return client.get('/reminder', params);
-    },
     async createReminder(title: string, dueDate: string, description?: string): Promise<any> {
       return client.post('/reminder', { title, due_date: dueDate, description });
-    },
-    async updateReminder(reminderId: string, title?: string, description?: string, dueDate?: string, isCompleted?: boolean): Promise<any> {
-      return client.put(`/reminder/${reminderId}`, { title, description, due_date: dueDate, is_completed: isCompleted });
     }
   };
 }
