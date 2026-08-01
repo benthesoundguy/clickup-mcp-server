@@ -218,6 +218,17 @@ try {
         const after = await tasks.getTask(taskA.id);
         if (String(after.list?.id) !== String(list.id)) throw new Error('move back failed');
       });
+      await step('tasks_move_bulk (empty-the-inbox shape)', async () => {
+        // Move the three bulk-created tasks to list B in one paced batch
+        const page = await tasks.getTasksFromList(list.id, {});
+        const bulkIds = (page.tasks ?? []).filter(t => t.name.startsWith('bulk ')).map(t => t.id);
+        if (bulkIds.length < 3) throw new Error('expected 3 bulk tasks, found ' + bulkIds.length);
+        const r = await tasks.bulkMoveTasks(TEAM, bulkIds.map(id => ({ task_id: id, list_id: listB.id })), true);
+        if (r.succeeded !== bulkIds.length) throw new Error('bulk move: ' + JSON.stringify(r.results));
+        const after = await tasks.getTasksFromList(listB.id, {});
+        const there = (after.tasks ?? []).filter(t => t.name.startsWith('bulk ')).length;
+        if (there !== bulkIds.length) throw new Error(`only ${there} tasks arrived in destination`);
+      });
       await step('unlink guard: refuses home list', async () => {
         // Mirrors the tasks_unlink tool guard: home-list unlink must be refused
         const t = await tasks.getTask(taskA.id);

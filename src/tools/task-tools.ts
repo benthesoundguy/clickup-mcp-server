@@ -461,6 +461,58 @@ export function setupTaskTools(server: McpServer): void {
   );
 
   server.tool(
+    'tasks_move_bulk',
+    'MOVE multiple tasks to new home lists in one call (true moves, rate-limit '
+    + 'paced). The "empty the inbox" operation: pass list_id as the shared '
+    + 'destination and task_ids, or per-task destinations via moves[]. '
+    + 'Supports up to 50 moves per call.',
+    {
+      workspace_id: z.string().describe('The workspace ID'),
+      list_id: z.string().optional().describe('Shared destination list for task_ids (and default for moves[] entries without one)'),
+      task_ids: z.array(z.string()).max(50).optional().describe('Tasks to move to list_id'),
+      moves: z.array(z.object({
+        task_id: z.string(),
+        list_id: z.string().optional().describe('Destination for this task (falls back to top-level list_id)'),
+        status_mappings: z.array(z.object({
+          from_status: z.string(),
+          to_status: z.string()
+        })).optional()
+      })).max(50).optional().describe('Per-task moves for mixed destinations'),
+      continue_on_error: z.boolean().optional().default(true).describe('Keep going if one move fails (default true)')
+    },
+    async ({ workspace_id, list_id, task_ids, moves, continue_on_error }) => {
+      try {
+        const resolved: Array<{ task_id: string; list_id: string; status_mappings?: Array<{ from_status: string; to_status: string }> }> = [];
+        for (const id of task_ids ?? []) {
+          if (!list_id) throw new Error('list_id is required when using task_ids');
+          resolved.push({ task_id: id, list_id });
+        }
+        for (const m of moves ?? []) {
+          const dest = m.list_id ?? list_id;
+          if (!dest) throw new Error(`No destination for task ${m.task_id}: set list_id on the entry or at the top level`);
+          resolved.push({ task_id: m.task_id, list_id: dest, status_mappings: m.status_mappings });
+        }
+        if (!resolved.length) throw new Error('Provide task_ids (with list_id) and/or moves[]');
+        if (resolved.length > 50) throw new Error('Max 50 moves per call');
+
+        const result = await tasksClient.bulkMoveTasks(workspace_id, resolved, continue_on_error);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({
+            summary: `Moved ${result.succeeded} of ${resolved.length} tasks${result.failed ? `, ${result.failed} failed` : ''}${result.stopped_early ? ' (stopped at first failure)' : ''}`,
+            succeeded: result.succeeded,
+            failed: result.failed,
+            results: result.results
+          }) }],
+          ...(result.failed > 0 ? { isError: true } : {})
+        };
+      } catch (error: any) {
+        console.error('Error bulk moving tasks:', error);
+        return { content: [{ type: 'text', text: `Error bulk moving tasks: ${error.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
     'tasks_link',
     'Add an existing task to an ADDITIONAL list (tasks-in-multiple-lists). '
     + 'The task keeps its home list. To relocate a task, use tasks_move instead — '

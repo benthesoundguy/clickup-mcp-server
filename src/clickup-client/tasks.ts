@@ -189,6 +189,41 @@ export class TasksClient {
   }
 
   /**
+   * Move multiple tasks (sequentially, paced under the rate limit).
+   * Same result contract as the other bulk operations: never throws for
+   * individual failures; with continueOnError false, stops at the first
+   * failure and marks the rest skipped.
+   */
+  async bulkMoveTasks(
+    workspaceId: string,
+    moves: Array<{ task_id: string; list_id: string; status_mappings?: Array<{ from_status: string; to_status: string }> }>,
+    continueOnError: boolean = true
+  ): Promise<BulkResult<{ task_id: string; list_id: string; status: string; error?: string }>> {
+    const results: Array<{ task_id: string; list_id: string; status: string; error?: string }> = [];
+    let succeeded = 0, failed = 0;
+
+    for (let i = 0; i < moves.length; i++) {
+      if (i > 0) await bulkPause();
+      const { task_id, list_id, status_mappings } = moves[i];
+      try {
+        await this.moveTask(workspaceId, task_id, list_id, status_mappings);
+        results.push({ task_id, list_id, status: 'moved' });
+        succeeded++;
+      } catch (error: any) {
+        results.push({ task_id, list_id, status: 'failed', error: error.message || 'Unknown error' });
+        failed++;
+        if (!continueOnError) {
+          for (let j = i + 1; j < moves.length; j++) {
+            results.push({ task_id: moves[j].task_id, list_id: moves[j].list_id, status: 'skipped' });
+          }
+          return { results, succeeded, failed, stopped_early: true };
+        }
+      }
+    }
+    return { results, succeeded, failed };
+  }
+
+  /**
    * Get subtasks of a specific task
    * @param taskId The ID of the task to get subtasks for
    * @returns A list of subtasks
