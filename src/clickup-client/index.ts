@@ -18,6 +18,9 @@ const BASE_URLS = {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
+// Longest single retry wait we'll honor from a Retry-After header — beyond
+// this we fail fast with the server's demanded wait in the error message.
+const MAX_RETRY_WAIT_MS = 15_000;
 const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 // 500s are retried only for idempotent methods — a retried POST could
 // double-create (observed: ClickUp's experimental chat API throws
@@ -168,6 +171,19 @@ export class ClickUpClient {
         const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000
           : this.backoffMs(attempt);
+        // A long Retry-After (rate-limit lockouts can demand minutes to
+        // hours) must FAIL FAST, not become a silent multi-minute hang
+        // inside a tool call. A fast, explained error beats a stuck tool.
+        if (waitMs > MAX_RETRY_WAIT_MS) {
+          throw new ClickUpApiError(
+            `${message} — rate limited: ClickUp asked to retry after ${Math.round(waitMs / 1000)}s, `
+            + `which exceeds the ${MAX_RETRY_WAIT_MS / 1000}s in-call retry budget. Do not retry immediately; `
+            + `wait at least that long before the next attempt.`,
+            response.status,
+            endpoint,
+            ecode
+          );
+        }
         await sleep(waitMs);
         lastError = new ClickUpApiError(message, response.status, endpoint, ecode);
         continue;

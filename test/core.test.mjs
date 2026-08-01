@@ -62,6 +62,10 @@ before(async () => {
     } else if (path === '/always429') {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '0' });
       res.end(JSON.stringify({ err: 'Rate limit forever', ECODE: 'RATE_001' }));
+    } else if (path === '/lockout429') {
+      // Simulates a rate-limit lockout demanding a long wait
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '3600' });
+      res.end(JSON.stringify({ err: 'Locked out', ECODE: 'RATE_002' }));
     } else if (path === '/slow') {
       // Never responds within the test's timeout budget
       setTimeout(() => { res.writeHead(200); res.end('{}'); }, 5000);
@@ -156,6 +160,23 @@ test('persistent 429 exhausts retries then throws', async () => {
     (err) => err instanceof ClickUpApiError && err.status === 429
   );
   assert.equal(hits['/always429'], 3); // initial + 2 retries
+});
+
+test('LOCKOUT: huge Retry-After fails fast with the wait in the message, no hang', async () => {
+  hits['/lockout429'] = 0;
+  const client = makeClient();
+  const started = Date.now();
+  await assert.rejects(
+    () => client.get('/lockout429'),
+    (err) => {
+      assert.equal(err.status, 429);
+      assert.match(err.message, /retry after 3600s/);
+      assert.match(err.message, /Do not retry immediately/);
+      return true;
+    }
+  );
+  assert.ok(Date.now() - started < 2000, 'must fail fast, not sleep out the Retry-After');
+  assert.equal(hits['/lockout429'], 1, 'must not burn extra attempts during a lockout');
 });
 
 test('transient 500 retries for GET (idempotent) but NOT for POST', async () => {

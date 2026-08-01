@@ -21,7 +21,8 @@ export function setupCustomFieldValueTools(server: McpServer): void {
       task_id: z.string().optional().describe('Required for get, set, remove: the task ID'),
       field_id: z.string().optional().describe('Required for set, remove: the custom field ID'),
       value: z.any().optional().describe(
-        'Required for set: the value. Format depends on field type:\n'
+        'Required for set: the RAW value — do NOT wrap it in {"value": ...} '
+        + '(the server adds that wrapper; double-wrapping causes FIELD_018). Format depends on field type:\n'
         + 'text/url/email/phone → string\n'
         + 'number/rating → number\n'
         + 'checkbox → boolean\n'
@@ -35,11 +36,21 @@ export function setupCustomFieldValueTools(server: McpServer): void {
         task_id: z.string(),
         field_id: z.string(),
         value: z.any()
-      })).describe('Array of {task_id, field_id, value} objects (bulk_set only)'),
+      })).optional().describe('bulk_set only: array of {task_id, field_id, value} objects'),
       continue_on_error: z.boolean().optional().default(false).describe('Continue if an individual update fails (bulk_set)'),
     },
     async ({ action, task_id, field_id, value, updates, continue_on_error }) => {
       try {
+        // Defensive unwrap: callers who mirror ClickUp's REST body sometimes
+        // pass {value: X} as the value; the client adds that wrapper itself,
+        // and the double-wrapped form fails with FIELD_018. Unwrap it here.
+        const unwrap = (v: any) =>
+          v && typeof v === 'object' && !Array.isArray(v)
+            && Object.keys(v).length === 1 && 'value' in v
+            ? v.value : v;
+        value = unwrap(value);
+        updates = updates?.map(u => ({ ...u, value: unwrap(u.value) }));
+
         switch (action) {
           case 'get': {
             if (!task_id) throw new Error('task_id required for get');
@@ -48,8 +59,9 @@ export function setupCustomFieldValueTools(server: McpServer): void {
           }
           case 'set': {
             if (!task_id || !field_id) throw new Error('task_id and field_id required for set');
+            if (value === undefined) throw new Error('value required for set (pass the raw value, not {"value": ...})');
             const result = await customFieldsClient.setTaskFieldValue(task_id, field_id, value);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({ success: true, task_id, field_id, ...(<object>result) }) }] };
           }
           case 'remove': {
             if (!task_id || !field_id) throw new Error('task_id and field_id required for remove');
