@@ -49,6 +49,22 @@ Add to your MCP client configuration:
 
 Get your API token from **ClickUp Settings → Apps → API Token**.
 
+### Remote mode (Claude web + mobile)
+
+The server also speaks **streamable HTTP** for claude.ai custom connectors —
+which sync to the Claude mobile app. Set two env vars and it switches transports:
+
+```bash
+MCP_HTTP_PORT=8809 MCP_AUTH_TOKEN=$(openssl rand -hex 24) CLICKUP_API_TOKEN=... node build/index.js
+```
+
+Every request must present the auth token (`Authorization: Bearer <token>`, or
+in the path: `/mcp/<token>` — the form claude.ai's connector UI needs).
+`GET /healthz` is an unauthenticated health probe.
+
+See [deploy/DEPLOY.md](deploy/DEPLOY.md) for the full recipe: VPS setup script,
+hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
+
 ## Tools (85 registered / 144 operations)
 
 ### Single-operation tools

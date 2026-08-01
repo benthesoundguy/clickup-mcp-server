@@ -1,0 +1,22 @@
+[Unit]
+Description=ClickUp MCP server (streamable HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mcp
+WorkingDirectory=/opt/clickup-mcp-server
+EnvironmentFile=/opt/clickup-mcp-server/.env
+ExecStart=/usr/bin/node build/index.js
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/clickup-mcp-server
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
