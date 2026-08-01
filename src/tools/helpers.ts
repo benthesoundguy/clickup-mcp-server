@@ -107,3 +107,55 @@ export function shapeTaskList(
 /** Pause between requests in bulk loops so serial writes stay under the rate limit. */
 export const BULK_PACING_MS = 150;
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+// ── Date coercion ──────────────────────────────────────────────────────
+
+/**
+ * Coerce a task date into the Unix-millisecond form ClickUp wants.
+ * Accepts:
+ *  - number (Unix ms) — passed through
+ *  - "YYYY-MM-DD"            → that date at noon, server-local time
+ *  - "YYYY-MM-DD HH:MM"      → that local time
+ *  - any ISO-8601 string with explicit offset
+ * Returns { ms, hasTime } so callers can set due_date_time correctly.
+ */
+export function coerceDate(input: number | string): { ms: number; hasTime: boolean } {
+  if (typeof input === 'number') return { ms: input, hasTime: true };
+  const s = input.trim();
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (dateOnly) {
+    // Noon local time keeps the calendar date stable across timezones
+    const d = new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 12, 0, 0);
+    return { ms: d.getTime(), hasTime: false };
+  }
+  const dateTime = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+  if (dateTime) {
+    const d = new Date(
+      Number(dateTime[1]), Number(dateTime[2]) - 1, Number(dateTime[3]),
+      Number(dateTime[4]), Number(dateTime[5]), Number(dateTime[6] ?? 0)
+    );
+    return { ms: d.getTime(), hasTime: true };
+  }
+  const parsed = Date.parse(s);
+  if (Number.isFinite(parsed)) return { ms: parsed, hasTime: true };
+  throw new Error(`Unparseable date: "${input}". Use Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM".`);
+}
+
+/**
+ * Normalize due_date/start_date on task params in place: string dates become
+ * Unix ms, and *_time flags are set from whether a time was provided (unless
+ * the caller set them explicitly).
+ */
+export function normalizeTaskDates<T extends { due_date?: number | string; due_date_time?: boolean; start_date?: number | string; start_date_time?: boolean }>(params: T): T {
+  if (params.due_date !== undefined) {
+    const { ms, hasTime } = coerceDate(params.due_date);
+    params.due_date = ms;
+    if (params.due_date_time === undefined) params.due_date_time = hasTime;
+  }
+  if (params.start_date !== undefined) {
+    const { ms, hasTime } = coerceDate(params.start_date);
+    params.start_date = ms;
+    if (params.start_date_time === undefined) params.start_date_time = hasTime;
+  }
+  return params;
+}

@@ -18,3 +18,4 @@ npm-debug.log*
 # Editor
 .vscode/
 .idea/
+.mcp-auth-token

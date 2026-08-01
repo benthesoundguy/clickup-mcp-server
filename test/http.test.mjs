@@ -79,9 +79,43 @@ test('initialize succeeds with path token', async () => {
   assert.equal(j.result.serverInfo.name, 'clickup-mcp-server');
 });
 
-test('tools/list works with bearer token — 85 tools', async () => {
+test('tools/list works with bearer token — 86 tools', async () => {
   const res = await post('/mcp', { jsonrpc: '2.0', id: 2, method: 'tools/list' }, { Authorization: `Bearer ${AUTH}` });
   assert.equal(res.status, 200);
   const j = await parseStreamable(res);
-  assert.equal(j.result.tools.length, 85);
+  assert.equal(j.result.tools.length, 86);
+});
+
+test('with no MCP_AUTH_TOKEN, server generates + persists one and reuses it', async () => {
+  const { mkdtempSync, readFileSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const cwd = mkdtempSync(resolve(tmpdir(), 'mcp-tokentest-'));
+  const spawnOnce = () => new Promise((res, rej) => {
+    const p2 = spawn('node', [resolve(here, '../build/index.js')], {
+      cwd,
+      env: { ...process.env, MCP_HTTP_PORT: String(PORT + 1), MCP_AUTH_TOKEN: '', CLICKUP_API_TOKEN: 'pk_unit_fake' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let err = '';
+    const t = setTimeout(() => rej(new Error('no start: ' + err)), 5000);
+    p2.stderr.on('data', (d) => {
+      err += d;
+      if (err.includes('listening on HTTP')) { clearTimeout(t); res({ proc: p2, log: err }); }
+    });
+    p2.on('exit', (code) => rej(new Error(`exited ${code}: ${err}`)));
+  });
+
+  const run1 = await spawnOnce();
+  run1.proc.kill();
+  const tokenFile = resolve(cwd, '.mcp-auth-token');
+  assert.ok(existsSync(tokenFile), 'token file should be created');
+  const token1 = readFileSync(tokenFile, 'utf-8').trim();
+  assert.ok(token1.length >= 32, 'generated token should be long');
+  assert.match(run1.log, /generated one for you/);
+
+  const run2 = await spawnOnce();
+  run2.proc.kill();
+  const token2 = readFileSync(tokenFile, 'utf-8').trim();
+  assert.equal(token2, token1, 'restart must reuse the same token');
+  assert.match(run2.log, /Using generated token from/);
 });

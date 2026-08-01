@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -113,8 +115,8 @@ async function runHttp(port: number, authToken: string) {
       return;
     }
 
-    const path = (req.url ?? '').split('?')[0];
-    if (!path.startsWith('/mcp')) {
+    const urlPath = (req.url ?? '').split('?')[0];
+    if (!urlPath.startsWith('/mcp')) {
       res.writeHead(404).end();
       return;
     }
@@ -162,16 +164,47 @@ async function runHttp(port: number, authToken: string) {
 
 // ── entry ──────────────────────────────────────────────────────────────
 
+/**
+ * Resolve the HTTP auth token:
+ * 1. MCP_AUTH_TOKEN env var, if set (must be ≥16 chars);
+ * 2. otherwise a previously generated token from .mcp-auth-token;
+ * 3. otherwise generate one, persist it (0600) so restarts keep the same
+ *    connector URL working, and print where to find it.
+ */
+function resolveAuthToken(): string {
+  const fromEnv = process.env.MCP_AUTH_TOKEN;
+  if (fromEnv) {
+    if (fromEnv.length < 16) {
+      console.error('MCP_AUTH_TOKEN is too short (min 16 chars) — this server can modify your workspace. Generate a strong one:  openssl rand -hex 24');
+      process.exit(1);
+    }
+    return fromEnv;
+  }
+
+  const tokenFile = path.join(process.cwd(), '.mcp-auth-token');
+  try {
+    const existing = fs.readFileSync(tokenFile, 'utf-8').trim();
+    if (existing.length >= 16) {
+      console.error(`[Auth] Using generated token from ${tokenFile}`);
+      return existing;
+    }
+  } catch { /* no file yet */ }
+
+  const generated = crypto.randomBytes(24).toString('hex');
+  fs.writeFileSync(tokenFile, generated + '\n', { mode: 0o600 });
+  console.error('─'.repeat(64));
+  console.error('[Auth] No MCP_AUTH_TOKEN set — generated one for you:');
+  console.error(`[Auth]   ${generated}`);
+  console.error(`[Auth] Saved to ${tokenFile} (it will be reused on restart).`);
+  console.error('[Auth] Connector URL:  https://<your-host>/mcp/' + generated);
+  console.error('─'.repeat(64));
+  return generated;
+}
+
 const httpPort = process.env.MCP_HTTP_PORT ? parseInt(process.env.MCP_HTTP_PORT, 10) : undefined;
 
 if (httpPort) {
-  const authToken = process.env.MCP_AUTH_TOKEN;
-  if (!authToken || authToken.length < 16) {
-    console.error('MCP_AUTH_TOKEN must be set (min 16 chars) to run in HTTP mode — this server can modify your workspace and must not be exposed unauthenticated.');
-    console.error('Generate one with:  openssl rand -hex 24');
-    process.exit(1);
-  }
-  runHttp(httpPort, authToken).catch((err) => {
+  runHttp(httpPort, resolveAuthToken()).catch((err) => {
     console.error(err);
     process.exit(1);
   });

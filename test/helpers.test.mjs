@@ -3,7 +3,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { trimTask, shapeTaskList, ok, fail, toolHandler } from '../build/tools/helpers.js';
+import { trimTask, shapeTaskList, ok, fail, toolHandler, coerceDate, normalizeTaskDates } from '../build/tools/helpers.js';
 import { ClickUpClient } from '../build/clickup-client/index.js';
 import { TasksClient } from '../build/clickup-client/tasks.js';
 
@@ -81,6 +81,48 @@ test('toolHandler wraps success and failure', async () => {
   const bad = toolHandler('Ctx', async () => { throw new Error('nope'); });
   const res = await bad({});
   assert.equal(res.isError, true);
+});
+
+// ── Date coercion ──────────────────────────────────────────────────────
+
+test('coerceDate passes numbers through', () => {
+  assert.deepEqual(coerceDate(1720000000000), { ms: 1720000000000, hasTime: true });
+});
+
+test('coerceDate: date-only string lands on the right calendar day, no time', () => {
+  const { ms, hasTime } = coerceDate('2026-08-15');
+  const d = new Date(ms);
+  assert.equal(hasTime, false);
+  assert.equal(d.getFullYear(), 2026);
+  assert.equal(d.getMonth(), 7);
+  assert.equal(d.getDate(), 15);
+  assert.equal(d.getHours(), 12); // noon local keeps the date stable across TZs
+});
+
+test('coerceDate: date+time string parses as local time', () => {
+  const { ms, hasTime } = coerceDate('2026-08-15 09:30');
+  const d = new Date(ms);
+  assert.equal(hasTime, true);
+  assert.equal(d.getHours(), 9);
+  assert.equal(d.getMinutes(), 30);
+});
+
+test('coerceDate rejects garbage with an actionable message', () => {
+  assert.throws(() => coerceDate('next tuesday'), /Unparseable date/);
+});
+
+test('normalizeTaskDates converts strings and sets *_time flags', () => {
+  const p = normalizeTaskDates({ due_date: '2026-08-15', start_date: '2026-08-14 08:00' });
+  assert.equal(typeof p.due_date, 'number');
+  assert.equal(p.due_date_time, false);
+  assert.equal(typeof p.start_date, 'number');
+  assert.equal(p.start_date_time, true);
+});
+
+test('normalizeTaskDates leaves explicit flags and numeric dates alone', () => {
+  const p = normalizeTaskDates({ due_date: 1720000000000, due_date_time: false });
+  assert.equal(p.due_date, 1720000000000);
+  assert.equal(p.due_date_time, false);
 });
 
 // ── Bulk normalization against a mock server ───────────────────────────

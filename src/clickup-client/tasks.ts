@@ -172,6 +172,23 @@ export class TasksClient {
   }
 
   /**
+   * Move a task to a different home list (v3 API — live-verified 2026-07-31).
+   * This is a true move, unlike the v2 tasks-in-multiple-lists endpoints
+   * which can only add/remove secondary lists.
+   * @param statusMappings Only needed when the task's current status doesn't
+   *        exist in the destination list: [{ from_status, to_status }].
+   */
+  async moveTask(
+    workspaceId: string,
+    taskId: string,
+    listId: string,
+    statusMappings?: Array<{ from_status: string; to_status: string }>
+  ): Promise<any> {
+    const body = statusMappings?.length ? { status_mappings: statusMappings } : {};
+    return this.client.put(`/workspaces/${workspaceId}/tasks/${taskId}/home_list/${listId}`, body, { api: 'v3' });
+  }
+
+  /**
    * Get subtasks of a specific task
    * @param taskId The ID of the task to get subtasks for
    * @returns A list of subtasks

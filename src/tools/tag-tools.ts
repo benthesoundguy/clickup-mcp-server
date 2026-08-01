@@ -50,10 +50,47 @@ export function setupTagTools(server: McpServer): void {
 
   server.tool(
     'tags_assign',
-    'Add a tag to a ClickUp task. The tag must already exist in the space.',
-    { task_id: z.string(), tag_name: z.string().describe('The name of the tag to add') },
-    async ({ task_id, tag_name }) => {
+    'Add tags to tasks. Single form: task_id + tag_name. Bulk form: assignments '
+    + '[{task_id, tags:[...]}] — tags many tasks in one call with rate-limit pacing. '
+    + 'Tags must already exist in the space.',
+    {
+      task_id: z.string().optional().describe('Single form: the task to tag'),
+      tag_name: z.string().optional().describe('Single form: the tag to add'),
+      assignments: z.array(z.object({
+        task_id: z.string(),
+        tags: z.array(z.string()).min(1)
+      })).max(50).optional().describe('Bulk form: up to 50 {task_id, tags[]} entries'),
+      continue_on_error: z.boolean().optional().default(true).describe('Bulk form: keep going if one assignment fails')
+    },
+    async ({ task_id, tag_name, assignments, continue_on_error }) => {
       try {
+        if (assignments?.length) {
+          const results: Array<{ task_id: string; tag: string; status: string; error?: string }> = [];
+          let succeeded = 0, failed = 0, first = true;
+          outer: for (const a of assignments) {
+            for (const tag of a.tags) {
+              if (!first) await new Promise<void>(r => setTimeout(r, 150));
+              first = false;
+              try {
+                await tagsClient.addTagToTask(a.task_id, tag);
+                results.push({ task_id: a.task_id, tag, status: 'assigned' });
+                succeeded++;
+              } catch (error: any) {
+                results.push({ task_id: a.task_id, tag, status: 'failed', error: error.message });
+                failed++;
+                if (!continue_on_error) break outer;
+              }
+            }
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              summary: `Assigned ${succeeded} tag(s)${failed ? `, ${failed} failed` : ''}`,
+              succeeded, failed, results
+            }) }],
+            ...(failed > 0 ? { isError: true } : {})
+          };
+        }
+        if (!task_id || !tag_name) throw new Error('Provide task_id + tag_name, or assignments[] for bulk');
         await tagsClient.addTagToTask(task_id, tag_name);
         return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
       } catch (error: any) {
@@ -65,10 +102,45 @@ export function setupTagTools(server: McpServer): void {
 
   server.tool(
     'tags_unassign',
-    'Remove a tag from a ClickUp task.',
-    { task_id: z.string(), tag_name: z.string() },
-    async ({ task_id, tag_name }) => {
+    'Remove tags from tasks. Single form: task_id + tag_name. Bulk form: assignments [{task_id, tags:[...]}].',
+    {
+      task_id: z.string().optional().describe('Single form: the task'),
+      tag_name: z.string().optional().describe('Single form: the tag to remove'),
+      assignments: z.array(z.object({
+        task_id: z.string(),
+        tags: z.array(z.string()).min(1)
+      })).max(50).optional().describe('Bulk form: up to 50 {task_id, tags[]} entries'),
+      continue_on_error: z.boolean().optional().default(true)
+    },
+    async ({ task_id, tag_name, assignments, continue_on_error }) => {
       try {
+        if (assignments?.length) {
+          const results: Array<{ task_id: string; tag: string; status: string; error?: string }> = [];
+          let succeeded = 0, failed = 0, first = true;
+          outer: for (const a of assignments) {
+            for (const tag of a.tags) {
+              if (!first) await new Promise<void>(r => setTimeout(r, 150));
+              first = false;
+              try {
+                await tagsClient.removeTagFromTask(a.task_id, tag);
+                results.push({ task_id: a.task_id, tag, status: 'removed' });
+                succeeded++;
+              } catch (error: any) {
+                results.push({ task_id: a.task_id, tag, status: 'failed', error: error.message });
+                failed++;
+                if (!continue_on_error) break outer;
+              }
+            }
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              summary: `Removed ${succeeded} tag(s)${failed ? `, ${failed} failed` : ''}`,
+              succeeded, failed, results
+            }) }],
+            ...(failed > 0 ? { isError: true } : {})
+          };
+        }
+        if (!task_id || !tag_name) throw new Error('Provide task_id + tag_name, or assignments[] for bulk');
         await tagsClient.removeTagFromTask(task_id, tag_name);
         return { content: [{ type: 'text', text: JSON.stringify({ success: true }) }] };
       } catch (error: any) {

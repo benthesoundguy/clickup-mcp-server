@@ -19,7 +19,7 @@ export function setupDocTools(server: McpServer): void {
       page_id: z.string().optional().describe('Required for pages_update: the page ID'),
       query: z.string().optional().describe('Required for search: the search query'),
       cursor: z.string().optional().describe('Pagination cursor (list, search)'),
-      content_format: z.enum(['text/md', 'text/plain']).optional().describe('Content format (pages_list)'),
+      content_format: z.enum(['text/md', 'text/plain']).optional().describe('Content format (pages_list, pages_update; default text/md)'),
       deleted: z.boolean().optional().describe('Include deleted docs (list)'),
       archived: z.boolean().optional().describe('Include archived docs (list)'),
       limit: z.number().optional().describe('Max docs to return (list)'),
@@ -27,13 +27,14 @@ export function setupDocTools(server: McpServer): void {
       // Create/update fields
       scope_type: z.enum(['list', 'folder']).optional().describe('Where to create the doc (create)'),
       scope_id: z.string().optional().describe('The list or folder ID (create)'),
-      name: z.string().optional().describe('Doc/page name (create, update, pages_create, pages_update)'),
-      content: z.string().optional().describe('Doc/page content in HTML format (create, update, pages_create, pages_update)'),
+      name: z.string().optional().describe('Doc/page name (create, pages_create, pages_update)'),
+      content: z.string().optional().describe('Doc/page content, markdown by default (create, pages_create, pages_update)'),
+      content_edit_mode: z.enum(['replace', 'append', 'prepend']).optional().describe('pages_update only: how to apply content. "append"/"prepend" add to the existing page — use these for logs instead of reproducing the whole document. Default: replace.'),
       sub_title: z.string().optional().describe('Page subtitle (pages_create, pages_update)'),
       parent_page_id: z.string().optional().describe('Parent page ID for sub-pages (pages_create)'),
     },
     async ({ action, workspace_id, doc_id, page_id, query, cursor, content_format, deleted, archived, limit,
-             scope_type, scope_id, name, content, sub_title, parent_page_id }) => {
+             scope_type, scope_id, name, content, content_edit_mode, sub_title, parent_page_id }) => {
       try {
         switch (action) {
           case 'get': {
@@ -82,7 +83,7 @@ export function setupDocTools(server: McpServer): void {
           }
           case 'pages_update': {
             if (!workspace_id || !doc_id || !page_id) throw new Error('workspace_id, doc_id, and page_id required for pages_update');
-            const result = await docsClient.updateDocPage(workspace_id, doc_id, page_id, name, content, sub_title);
+            const result = await docsClient.updateDocPage(workspace_id, doc_id, page_id, name, content, sub_title, content_edit_mode, content_format);
             return { content: [{ type: 'text', text: JSON.stringify(result) }] };
           }
         }

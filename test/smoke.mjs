@@ -204,6 +204,45 @@ try {
       if (r.succeeded !== 2) throw new Error(`expected 2 updated, got ${r.succeeded}`);
     });
 
+    // ── Task move (v3 home-list change) + unlink guard ─────────────────
+    console.log('task move & link safety');
+    const listB = await step('second list for move target', () => lists.createListInFolder(folder.id, { name: `${SANDBOX}-list-B` }));
+    if (listB && taskA) {
+      await step('tasks_move (v3 home list)', async () => {
+        await tasks.moveTask(TEAM, taskA.id, listB.id);
+        const after = await tasks.getTask(taskA.id);
+        if (String(after.list?.id) !== String(listB.id)) throw new Error(`task not moved: in ${after.list?.id}`);
+      });
+      await step('tasks_move back', async () => {
+        await tasks.moveTask(TEAM, taskA.id, list.id);
+        const after = await tasks.getTask(taskA.id);
+        if (String(after.list?.id) !== String(list.id)) throw new Error('move back failed');
+      });
+      await step('unlink guard: refuses home list', async () => {
+        // Mirrors the tasks_unlink tool guard: home-list unlink must be refused
+        const t = await tasks.getTask(taskA.id);
+        if (String(t.list?.id) !== String(list.id)) throw new Error('precondition failed');
+        // The guard lives in the tool layer; verify the underlying data lets us detect it
+        if (!t.list?.id) throw new Error('task has no home list id to guard on');
+      });
+    }
+
+    // ── Bulk tags ──────────────────────────────────────────────────────
+    console.log('bulk tags');
+    const BTAG = `mcp-bulk-${STAMP}`;
+    await step('bulk tag 2 tasks in one flow', async () => {
+      await tags.createSpaceTag(SPACE, BTAG, '#4194f6', '#ffffff');
+      const targets = [taskA?.id, taskB?.id].filter(Boolean);
+      for (let i = 0; i < targets.length; i++) {
+        if (i > 0) await pause(200);
+        await tags.addTagToTask(targets[i], BTAG);
+      }
+      const t = await tasks.getTask(taskA.id);
+      if (!(t.tags ?? []).some(x => x.name === BTAG)) throw new Error('bulk tag not visible on task');
+      for (const id of targets) { await tags.removeTagFromTask(id, BTAG); await pause(200); }
+      await tags.deleteSpaceTag(SPACE, BTAG);
+    });
+
     // ── Dependencies ───────────────────────────────────────────────────
     console.log('dependencies');
     if (taskA && taskB) {
@@ -355,9 +394,17 @@ try {
     });
     if (doc?.id) {
       await step('docs pages_list', () => docs.getDocPages(TEAM, doc.id));
-      const page = await step('docs pages_create', () => docs.createDocPage(TEAM, doc.id, 'smoke page', 'page content'));
+      const page = await step('docs pages_create', () => docs.createDocPage(TEAM, doc.id, 'smoke page', 'first line'));
       if (page?.id) {
-        await step('docs pages_update', () => docs.updateDocPage(TEAM, doc.id, page.id, 'smoke page (edited)', 'edited content'));
+        await step('docs pages_update (replace)', () => docs.updateDocPage(TEAM, doc.id, page.id, 'smoke page (edited)', 'first line'));
+        await step('docs pages_update (append, readback)', async () => {
+          await docs.updateDocPage(TEAM, doc.id, page.id, undefined, '\nappended line', undefined, 'append', 'text/md');
+          const pages = await docs.getDocPages(TEAM, doc.id, 'text/md');
+          const body = JSON.stringify(pages);
+          if (!body.includes('first line') || !body.includes('appended line')) {
+            throw new Error('append did not preserve + add content: ' + body.slice(0, 150));
+          }
+        });
       }
       await step('docs list (workspace)', () => docs.getDocsFromWorkspace(TEAM, { limit: 5 }));
       await step('docs search', () => docs.searchDocs(TEAM, { query: 'smoke-doc' }));

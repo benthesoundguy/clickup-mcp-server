@@ -114,12 +114,28 @@ export class DocsClient {
   }
 
   /**
-   * Update an existing page (v3 API, workspace-scoped route)
+   * Update an existing page (v3 API, workspace-scoped route).
+   * @param editMode 'replace' (default), 'append', or 'prepend' — append/prepend
+   *        avoid full-document rewrites for log-style pages (live-verified).
+   * @param contentFormat 'text/md' (default) or 'text/plain'
    */
-  async updateDocPage(workspaceId: string, docId: string, pageId: string, title?: string, content?: string, subTitle?: string): Promise<any> {
+  async updateDocPage(
+    workspaceId: string,
+    docId: string,
+    pageId: string,
+    title?: string,
+    content?: string,
+    subTitle?: string,
+    editMode?: 'replace' | 'append' | 'prepend',
+    contentFormat?: string
+  ): Promise<any> {
     const body: Record<string, unknown> = {};
     if (title !== undefined) body.name = title;
-    if (content !== undefined) body.content = content;
+    if (content !== undefined) {
+      body.content = content;
+      body.content_edit_mode = editMode ?? 'replace';
+      body.content_format = contentFormat ?? 'text/md';
+    }
     if (subTitle !== undefined) body.sub_title = subTitle;
     return this.client.put(`/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`, body, { api: 'v3' });
   }

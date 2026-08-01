@@ -5,7 +5,7 @@ import { createTasksClient, CreateTaskParams, UpdateTaskParams } from '../clicku
 import { createListsClient } from '../clickup-client/lists.js';
 import { createFoldersClient } from '../clickup-client/folders.js';
 import { createAuthClient } from '../clickup-client/auth.js';
-import { shapeTaskList } from './helpers.js';
+import { shapeTaskList, normalizeTaskDates } from './helpers.js';
 
 // Create clients
 const clickUpClient = createClickUpClient();
@@ -132,18 +132,18 @@ export function setupTaskTools(server: McpServer): void {
       tags: z.array(z.string()).optional().describe('The tags to add to the task'),
       status: z.string().optional().describe('The status of the task'),
       priority: z.number().optional().describe('The priority of the task (1-4)'),
-      due_date: z.number().optional().describe('The due date of the task (Unix timestamp)'),
-      due_date_time: z.boolean().optional().describe('Whether the due date includes a time'),
+      due_date: z.union([z.number(), z.string()]).optional().describe('Due date: Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM" (local time)'),
+      due_date_time: z.boolean().optional().describe('Whether the due date includes a time (inferred from the date format if omitted)'),
       time_estimate: z.number().optional().describe('The time estimate for the task (in milliseconds)'),
-      start_date: z.number().optional().describe('The start date of the task (Unix timestamp)'),
-      start_date_time: z.boolean().optional().describe('Whether the start date includes a time'),
+      start_date: z.union([z.number(), z.string()]).optional().describe('Start date: Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM" (local time)'),
+      start_date_time: z.boolean().optional().describe('Whether the start date includes a time (inferred from the date format if omitted)'),
       notify_all: z.boolean().optional().describe('Whether to notify all assignees'),
       parent: z.string().optional().describe('The ID of the parent task'),
       task_type: z.string().optional().describe('Task type name — e.g. "Bug", "Feature", "Milestone". Must match an existing task type in the workspace.')
     },
     async ({ list_id, ...taskParams }) => {
       try {
-        const result = await tasksClient.createTask(list_id, taskParams as CreateTaskParams);
+        const result = await tasksClient.createTask(list_id, normalizeTaskDates(taskParams) as CreateTaskParams);
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }]
         };
@@ -167,17 +167,17 @@ export function setupTaskTools(server: McpServer): void {
       assignees: z.array(z.number()).optional().describe('The IDs of the users to assign to the task'),
       status: z.string().optional().describe('The new status of the task'),
       priority: z.number().optional().describe('The new priority of the task (1-4)'),
-      due_date: z.number().optional().describe('The new due date of the task (Unix timestamp)'),
-      due_date_time: z.boolean().optional().describe('Whether the due date includes a time'),
+      due_date: z.union([z.number(), z.string()]).optional().describe('Due date: Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM" (local time)'),
+      due_date_time: z.boolean().optional().describe('Whether the due date includes a time (inferred from the date format if omitted)'),
       time_estimate: z.number().optional().describe('The new time estimate for the task (in milliseconds)'),
-      start_date: z.number().optional().describe('The new start date of the task (Unix timestamp)'),
-      start_date_time: z.boolean().optional().describe('Whether the start date includes a time'),
+      start_date: z.union([z.number(), z.string()]).optional().describe('Start date: Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM" (local time)'),
+      start_date_time: z.boolean().optional().describe('Whether the start date includes a time (inferred from the date format if omitted)'),
       notify_all: z.boolean().optional().describe('Whether to notify all assignees'),
       task_type: z.string().optional().describe('Task type name — e.g. "Bug", "Feature", "Milestone". Must match an existing task type in the workspace.')
     },
     async ({ task_id, ...taskParams }) => {
       try {
-        const result = await tasksClient.updateTask(task_id, taskParams as UpdateTaskParams);
+        const result = await tasksClient.updateTask(task_id, normalizeTaskDates(taskParams) as UpdateTaskParams);
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }]
         };
@@ -436,8 +436,35 @@ export function setupTaskTools(server: McpServer): void {
   );
 
   server.tool(
+    'tasks_move',
+    'MOVE a task to a different home list (a true move, not a link). '
+    + 'Prefer this over tasks_link/tasks_unlink when relocating a task. '
+    + 'status_mappings is only needed when the task\'s current status does not exist in the destination list.',
+    {
+      workspace_id: z.string().describe('The workspace ID'),
+      task_id: z.string().describe('The task to move'),
+      list_id: z.string().describe('The destination list (becomes the task\'s new home list)'),
+      status_mappings: z.array(z.object({
+        from_status: z.string(),
+        to_status: z.string()
+      })).optional().describe('Map statuses that don\'t exist in the destination: [{from_status, to_status}]')
+    },
+    async ({ workspace_id, task_id, list_id, status_mappings }) => {
+      try {
+        const result = await tasksClient.moveTask(workspace_id, task_id, list_id, status_mappings);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (error: any) {
+        console.error('Error moving task:', error);
+        return { content: [{ type: 'text', text: `Error moving task: ${error.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
     'tasks_link',
-    'Add an existing task to a ClickUp list.',
+    'Add an existing task to an ADDITIONAL list (tasks-in-multiple-lists). '
+    + 'The task keeps its home list. To relocate a task, use tasks_move instead — '
+    + 'link+unlink is not a move and can leave the task in two lists if interrupted.',
     {
       list_id: z.string().describe('The ID of the list to add the task to'),
       task_id: z.string().describe('The ID of the task to add')
@@ -460,13 +487,23 @@ export function setupTaskTools(server: McpServer): void {
 
   server.tool(
     'tasks_unlink',
-    'Remove a task from a ClickUp list without deleting the task.',
+    'Remove a task from an ADDITIONAL list it was linked to (tasks-in-multiple-lists). '
+    + 'Refuses to remove a task from its home list — use tasks_move for that.',
     {
       list_id: z.string().describe('The ID of the list to remove the task from'),
       task_id: z.string().describe('The ID of the task to remove')
     },
     async ({ list_id, task_id }) => {
       try {
+        // Guard: unlinking from the home list is not a valid operation and
+        // half-executed link/unlink sequences have stranded tasks before.
+        const task = await tasksClient.getTask(task_id);
+        if (task.list?.id && String(task.list.id) === String(list_id)) {
+          return {
+            content: [{ type: 'text', text: `Refused: list ${list_id} is this task's HOME list. Unlinking from the home list is not supported — use tasks_move to relocate the task instead.` }],
+            isError: true
+          };
+        }
         const result = await listsClient.removeTaskFromList(list_id, task_id);
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }]
@@ -594,7 +631,7 @@ export function setupTaskTools(server: McpServer): void {
         tags: z.array(z.string()).optional().describe('Tag names'),
         status: z.string().optional().describe('Task status'),
         priority: z.number().optional().describe('Priority (1-4)'),
-        due_date: z.number().optional().describe('Due date as Unix timestamp in milliseconds'),
+        due_date: z.union([z.number(), z.string()]).optional().describe('Due date: Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM"'),
         time_estimate: z.number().optional().describe('Time estimate in milliseconds'),
         parent: z.string().optional().describe('Parent task ID for subtasks')
       })).min(1).max(50).describe('Array of tasks to create (1-50)'),
@@ -602,7 +639,7 @@ export function setupTaskTools(server: McpServer): void {
     },
     async ({ list_id, tasks, continue_on_error }) => {
       try {
-        const result = await tasksClient.bulkCreateTasks(list_id, tasks as any, continue_on_error);
+        const result = await tasksClient.bulkCreateTasks(list_id, tasks.map(t => normalizeTaskDates({ ...t })) as any, continue_on_error);
         return {
           content: [{ type: 'text', text: JSON.stringify({
             summary: `Created ${result.succeeded} of ${tasks.length} tasks${result.failed ? `, ${result.failed} failed` : ''}${result.stopped_early ? ' (stopped at first failure)' : ''}`,
@@ -622,8 +659,8 @@ export function setupTaskTools(server: McpServer): void {
   server.tool(
     'tasks_update_bulk',
     'Update multiple existing ClickUp tasks in a single operation. Each entry must include a task_id and the fields to update. '
-    + 'Can batch-change status across tasks (set status per task), batch-reassign (set assignees array per task), '
-    + 'or batch-add tags (set tags array per task). Supports up to 50 tasks per call.',
+    + 'Can batch-change status across tasks (set status per task) or batch-reassign (set assignees array per task). '
+    + 'Tags cannot be set here — use tags_assign, which supports bulk assignments. Supports up to 50 tasks per call.',
     {
       updates: z.array(z.object({
         task_id: z.string().describe('The ID of the task to update'),
@@ -632,16 +669,16 @@ export function setupTaskTools(server: McpServer): void {
         assignees: z.array(z.number()).optional(),
         status: z.string().optional(),
         priority: z.number().optional(),
-        due_date: z.number().optional(),
+        due_date: z.union([z.number(), z.string()]).optional().describe('Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM"'),
         time_estimate: z.number().optional(),
-        start_date: z.number().optional(),
+        start_date: z.union([z.number(), z.string()]).optional().describe('Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM"'),
         notify_all: z.boolean().optional()
       })).min(1).max(50).describe('Array of task updates (1-50)'),
       continue_on_error: z.boolean().optional().default(false).describe('Continue if an individual task update fails')
     },
     async ({ updates, continue_on_error }) => {
       try {
-        const result = await tasksClient.bulkUpdateTasks(updates as any, continue_on_error);
+        const result = await tasksClient.bulkUpdateTasks(updates.map(u => normalizeTaskDates({ ...u })) as any, continue_on_error);
         return {
           content: [{ type: 'text', text: JSON.stringify({
             summary: `Updated ${result.succeeded} of ${updates.length} tasks${result.failed ? `, ${result.failed} failed` : ''}${result.stopped_early ? ' (stopped at first failure)' : ''}`,
