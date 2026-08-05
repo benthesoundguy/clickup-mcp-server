@@ -61,6 +61,48 @@ export interface ClickUpClientConfig {
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
+// ── Token resolution ───────────────────────────────────────────────────
+// Precedence: explicit config > .env FILE > process env var.
+// The file outranks the inherited env var deliberately: MCP host apps
+// (e.g. Claude Desktop) snapshot their config into the child process env
+// and can rewrite the config from memory on quit, so the env var goes
+// stale after a token rotation. The .env file is the single source of
+// truth the user actually edits. Searched (first hit wins):
+//   1. <cwd>/.env
+//   2. <repo root>/.env        (two levels up from this compiled file)
+//   3. <repo root>/../.env     (repo checked out inside a project folder)
+// Set MCP_NO_ENV_FILE=1 to disable the file lookup (used by tests).
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+let envFileToken: string | null | undefined; // undefined = not yet searched
+
+function tokenFromEnvFile(): string | null {
+  if (process.env.MCP_NO_ENV_FILE === '1') return null;
+  if (envFileToken !== undefined) return envFileToken;
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(moduleDir, '..', '..');
+  const candidates = [
+    path.join(process.cwd(), '.env'),
+    path.join(repoRoot, '.env'),
+    path.resolve(repoRoot, '..', '.env'),
+  ];
+  envFileToken = null;
+  for (const p of candidates) {
+    try {
+      const m = fs.readFileSync(p, 'utf-8').match(/^\s*CLICKUP_API_TOKEN\s*=\s*(\S+)\s*$/m);
+      if (m) {
+        envFileToken = m[1];
+        console.error(`[Auth] ClickUp token loaded from ${p}`);
+        break;
+      }
+    } catch { /* no file here */ }
+  }
+  return envFileToken;
+}
+
 export class ClickUpClient {
   private config: ClickUpClientConfig;
 
@@ -70,10 +112,10 @@ export class ClickUpClient {
 
   /** Resolve the API token lazily so a missing token is a request-time error. */
   private getToken(): string {
-    const token = this.config.apiToken ?? process.env.CLICKUP_API_TOKEN;
+    const token = this.config.apiToken ?? tokenFromEnvFile() ?? process.env.CLICKUP_API_TOKEN;
     if (!token) {
       throw new ClickUpApiError(
-        'CLICKUP_API_TOKEN is not set. Add it to the env block of this server in your MCP settings.',
+        'CLICKUP_API_TOKEN is not set. Put it in a .env file next to the server install, or in the env block of your MCP settings.',
         0,
         '(config)'
       );

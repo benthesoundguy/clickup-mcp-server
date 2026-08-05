@@ -204,6 +204,7 @@ test('timeout aborts and reports a timeout error', async () => {
 test('missing token throws actionable config error at request time, not construction', async () => {
   const saved = process.env.CLICKUP_API_TOKEN;
   delete process.env.CLICKUP_API_TOKEN;
+  process.env.MCP_NO_ENV_FILE = '1'; // isolate from any real .env on this machine
   try {
     const client = new ClickUpClient({ baseUrlV2: baseUrl }); // must not throw here
     await assert.rejects(
@@ -212,6 +213,7 @@ test('missing token throws actionable config error at request time, not construc
     );
   } finally {
     if (saved !== undefined) process.env.CLICKUP_API_TOKEN = saved;
+    delete process.env.MCP_NO_ENV_FILE;
   }
 });
 
