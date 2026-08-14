@@ -3,6 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -29,6 +30,8 @@ import { setupReminderTools } from './tools/reminder-tools.js';
 import { setupStatusTools } from './tools/status-tools.js';
 import { setupProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
 
+const SERVER_VERSION = '3.1.0';
+
 // Transports:
 //   default              → stdio (Claude Desktop / Claude Code local config)
 //   MCP_HTTP_PORT set    → streamable HTTP on that port (remote clients:
@@ -39,10 +42,27 @@ import { setupProjectIntelligenceTools } from './tools/project-intelligence-tool
 //                          custom-header field, so the URL form is the one
 //                          you paste there).
 
+/**
+ * Build stamp — lets a client tell whether the running process predates a
+ * rebuild. Version skew (a host app holding an old server process after the
+ * code was rebuilt) has repeatedly produced "the fix didn't work" reports;
+ * this makes it visible instead of invisible.
+ */
+function buildStamp(): string {
+  try {
+    const self = fileURLToPath(import.meta.url);
+    const mtime = fs.statSync(self).mtime.toISOString();
+    const started = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
+    return `build ${mtime} · process started ${started}`;
+  } catch {
+    return 'build stamp unavailable';
+  }
+}
+
 function buildServer(): McpServer {
   const server = new McpServer({
     name: 'clickup-mcp-server',
-    version: '3.0.0',
+    version: SERVER_VERSION,
   });
   setupTaskTools(server);
   setupDocTools(server);
@@ -66,6 +86,25 @@ function buildServer(): McpServer {
   setupReminderTools(server);
   setupStatusTools(server);
   setupProjectIntelligenceTools(server);
+
+  // Diagnostic: which code is this process actually running?
+  server.tool(
+    'server_info',
+    'Report this MCP server\'s version and build stamp. Call it first when a fix '
+    + 'appears not to have taken effect: if the build timestamp predates the change '
+    + 'you expect, the host app is holding an old process and needs restarting.',
+    {},
+    async () => ({
+      content: [{ type: 'text', text: JSON.stringify({
+        name: 'clickup-mcp-server',
+        version: SERVER_VERSION,
+        build: buildStamp(),
+        transport: process.env.MCP_HTTP_PORT ? 'http' : 'stdio',
+        node: process.version,
+      }) }],
+    })
+  );
+
   return server;
 }
 
@@ -111,7 +150,7 @@ async function runHttp(port: number, authToken: string) {
     // Health probe (no auth, no data)
     if (req.method === 'GET' && (req.url === '/healthz' || req.url === '/')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, name: 'clickup-mcp-server', version: '3.0.0' }));
+      res.end(JSON.stringify({ ok: true, name: 'clickup-mcp-server', version: SERVER_VERSION, build: buildStamp() }));
       return;
     }
 

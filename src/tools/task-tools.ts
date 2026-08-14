@@ -66,7 +66,7 @@ export function setupTaskTools(server: McpServer): void {
       list_id: z.string().describe('The ID of the list to get tasks from'),
       include_closed: z.boolean().optional().describe('Whether to include closed tasks'),
       subtasks: z.boolean().optional().describe('Whether to include subtasks in the results'),
-      page: z.number().optional().describe('Fetch a single specific page (0-based) instead of all pages'),
+      page: z.number().int().min(0).optional().describe('Fetch a single specific page (0-based) instead of all pages'),
       order_by: z.string().optional().describe('The field to order by'),
       reverse: z.boolean().optional().describe('Whether to reverse the order'),
       detail: z.enum(['lean', 'full']).optional().describe('Response shape: lean (default) or full raw task objects'),
@@ -173,6 +173,7 @@ export function setupTaskTools(server: McpServer): void {
       start_date: z.union([z.number(), z.string()]).optional().describe('Start date: Unix ms, "YYYY-MM-DD", or "YYYY-MM-DD HH:MM" (local time)'),
       start_date_time: z.boolean().optional().describe('Whether the start date includes a time (inferred from the date format if omitted)'),
       notify_all: z.boolean().optional().describe('Whether to notify all assignees'),
+      parent: z.string().optional().describe('Re-parent this task under another task (makes it a subtask). Pass null-equivalent by omitting.'),
       task_type: z.string().optional().describe('Task type name — e.g. "Bug", "Feature", "Milestone". Must match an existing task type in the workspace.')
     },
     async ({ task_id, ...taskParams }) => {
@@ -494,6 +495,12 @@ export function setupTaskTools(server: McpServer): void {
         }
         if (!resolved.length) throw new Error('Provide task_ids (with list_id) and/or moves[]');
         if (resolved.length > 50) throw new Error('Max 50 moves per call');
+        // A task listed twice would be "moved" twice and inflate the count.
+        const seenIds = new Set<string>();
+        const dupes = resolved.filter(m => seenIds.size === seenIds.add(m.task_id).size);
+        if (dupes.length) {
+          throw new Error(`Duplicate task_id(s) in this batch: ${[...new Set(dupes.map(d => d.task_id))].join(', ')}. Each task may appear once.`);
+        }
 
         const result = await tasksClient.bulkMoveTasks(workspace_id, resolved, continue_on_error);
         return {

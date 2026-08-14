@@ -88,7 +88,13 @@ export class TimeTrackingClient {
    * @returns The updated time entry
    */
   async updateTimeEntry(teamId: string, entryId: string, data: UpdateTimeEntryData): Promise<any> {
-    return this.client.put(`/team/${teamId}/time_entries/${entryId}`, toWire(data));
+    const res = await this.client.put<any>(`/team/${teamId}/time_entries/${entryId}`, toWire(data));
+    // ClickUp answers 200 {"data":null} for an entry that does not exist —
+    // surface that as the not-found it actually is.
+    if (res && 'data' in res && res.data === null) {
+      throw new Error(`Time entry ${entryId} not found (ClickUp returned no entry).`);
+    }
+    return res;
   }
 
   /**
@@ -98,7 +104,11 @@ export class TimeTrackingClient {
    * @returns Success confirmation
    */
   async deleteTimeEntry(teamId: string, entryId: string): Promise<any> {
-    return this.client.delete(`/team/${teamId}/time_entries/${entryId}`);
+    const res = await this.client.delete<any>(`/team/${teamId}/time_entries/${entryId}`);
+    if (res && 'data' in res && res.data === null) {
+      throw new Error(`Time entry ${entryId} not found (nothing was deleted).`);
+    }
+    return res;
   }
 
   /**

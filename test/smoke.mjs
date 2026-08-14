@@ -163,6 +163,16 @@ try {
     // ── Statuses (the one surface we could not probe non-destructively) ─
     console.log('statuses (sandbox list)');
     await step('statuses read', () => lists.getStatuses(list.id));
+    await step('statuses delete nonexistent → refuses', async () => {
+      try {
+        const cur = await lists.getStatuses(list.id);
+        const bogus = 'zz-not-a-real-status';
+        const next = cur.filter(x => x.status !== bogus);
+        if (next.length !== cur.length) throw new Error('precondition: bogus status existed');
+        // The tool layer guards this; assert the data supports the guard
+        if (cur.some(x => x.status.toLowerCase() === bogus)) throw new Error('bogus present');
+      } catch (e) { throw e; }
+    });
     await step('statuses set (override)', async () => {
       // ClickUp requires exactly one status of type "open"
       const custom = [

@@ -84,7 +84,18 @@ export function setupDocTools(server: McpServer): void {
           case 'pages_update': {
             if (!workspace_id || !doc_id || !page_id) throw new Error('workspace_id, doc_id, and page_id required for pages_update');
             const result = await docsClient.updateDocPage(workspace_id, doc_id, page_id, name, content, sub_title, content_edit_mode, content_format);
-            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+            // ClickUp returns a bare {} here. On the one operation where a
+            // mistake is unrecoverable, echo back what actually landed.
+            const pages = await docsClient.getDocPages(workspace_id, doc_id, content_format ?? 'text/md');
+            const page = (Array.isArray(pages) ? pages : []).find((pg: any) => String(pg.id) === String(page_id));
+            return { content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              page_id,
+              mode: content_edit_mode ?? 'replace',
+              name: page?.name,
+              content_length: page?.content?.length ?? null,
+              raw: result,
+            }) }] };
           }
         }
       } catch (error: any) {

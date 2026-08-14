@@ -79,11 +79,11 @@ test('initialize succeeds with path token', async () => {
   assert.equal(j.result.serverInfo.name, 'clickup-mcp-server');
 });
 
-test('tools/list works with bearer token — 87 tools', async () => {
+test('tools/list works with bearer token — 88 tools', async () => {
   const res = await post('/mcp', { jsonrpc: '2.0', id: 2, method: 'tools/list' }, { Authorization: `Bearer ${AUTH}` });
   assert.equal(res.status, 200);
   const j = await parseStreamable(res);
-  assert.equal(j.result.tools.length, 87);
+  assert.equal(j.result.tools.length, 88);
 });
 
 test('with no MCP_AUTH_TOKEN, server generates + persists one and reuses it', async () => {

@@ -21,6 +21,8 @@ const listsClient = createListsClient(clickUpClient);
 const timeTrackingClient = createTimeTrackingClient(clickUpClient);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Max task objects inlined in the health report (aggregates always cover all). */
+const HEALTH_TASK_SAMPLE = 25;
 const SEVEN_DAYS_MS = 7 * DAY_MS;
 
 // ── Status classification ──────────────────────────────────────────────
@@ -139,7 +141,12 @@ export function computeHealth(tasks: Task[], statuses: ListStatus[], now: number
     stale_rate: Math.round(staleRate * 10) / 10,
     status_distribution: statusDist,
     recent_completions_7d: recentCompleted,
-    tasks: tasks.map(t => ({
+    // Cap the inline dump: a 150-task list used to inline all 150 objects,
+    // dwarfing the aggregates this report exists to deliver. Use tasks_list
+    // for the full set.
+    tasks_included: Math.min(tasks.length, HEALTH_TASK_SAMPLE),
+    tasks_truncated: tasks.length > HEALTH_TASK_SAMPLE,
+    tasks: tasks.slice(0, HEALTH_TASK_SAMPLE).map(t => ({
       id: t.id, name: t.name, status: t.status?.status,
       priority: t.priority?.priority, assignees: t.assignees?.map((a: any) => a.username || a.id),
       due_date: t.due_date, blocked: ((t as any).dependencies?.length || 0) > 0

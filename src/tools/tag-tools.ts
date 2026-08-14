@@ -13,8 +13,8 @@ export function setupTagTools(server: McpServer): void {
     {
       action: z.enum(['list', 'create', 'update', 'delete']).describe('Action to perform'),
       space_id: z.string().describe('The ID of the space'),
-      name: z.string().optional().describe('Required for create: the tag name. For update: new name.'),
-      tag_name: z.string().optional().describe('Required for update/delete: the current tag name'),
+      name: z.string().optional().describe('CREATE: the new tag name. UPDATE: the replacement name. Not used by list/delete.'),
+      tag_name: z.string().optional().describe('UPDATE/DELETE: the EXISTING tag to act on. Not used by create — use `name` there. (ClickUp stores tag names lower-cased.)'),
       tag_bg: z.string().optional().describe('Background color hex for create/update, e.g. "#000000"'),
       tag_fg: z.string().optional().describe('Foreground color hex for create/update, e.g. "#FFFFFF"')
     },
