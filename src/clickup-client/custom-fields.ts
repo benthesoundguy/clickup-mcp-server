@@ -63,7 +63,13 @@ export class CustomFieldsClient {
       options?: Array<{ name: string; orderindex: number }>;
     }
   ): Promise<any> {
-    return this.client.post(`/list/${scopeId}/field`, params);
+    // ClickUp requires dropdown/label options under `type_config`, not at the
+    // top level — a flat `options` array is rejected with FIELD_022
+    // (verified live 2026-08-14).
+    const { options, ...rest } = params;
+    const body: Record<string, unknown> = { ...rest };
+    if (options?.length) body.type_config = { options };
+    return this.client.post(`/list/${scopeId}/field`, body);
   }
 
   /**

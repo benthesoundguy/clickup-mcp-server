@@ -142,6 +142,28 @@ export function coerceDate(input: number | string): { ms: number; hasTime: boole
 }
 
 /**
+ * Parse a duration into milliseconds. Accepts a number (already ms), a plain
+ * numeric string, or human forms: "90m", "1h 30m", "1.5h", "2h", "45s".
+ */
+export function coerceDuration(input: number | string): number {
+  if (typeof input === 'number') return input;
+  const s = String(input).trim();
+  if (/^\d+$/.test(s)) return Number(s); // bare number = already ms
+  const re = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)/gi;
+  let ms = 0, matched = false, m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    matched = true;
+    const n = parseFloat(m[1]);
+    const unit = m[2].toLowerCase();
+    if (unit.startsWith('h')) ms += n * 3_600_000;
+    else if (unit.startsWith('m')) ms += n * 60_000;
+    else ms += n * 1000;
+  }
+  if (!matched) throw new Error(`Unparseable duration: "${input}". Use milliseconds, or forms like "90m", "1h 30m", "1.5h".`);
+  return Math.round(ms);
+}
+
+/**
  * Normalize due_date/start_date on task params in place: string dates become
  * Unix ms, and *_time flags are set from whether a time was provided (unless
  * the caller set them explicitly).

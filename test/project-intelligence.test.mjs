@@ -27,6 +27,9 @@ const CUSTOM_STATUSES = [
   { status: 'Archived', type: 'closed', orderindex: 4 },
 ];
 
+// ClickUp attaches the SAME dependency record to BOTH linked tasks.
+// mkTask's `deps` models a task's own upstream links; `mirrored` models the
+// record ClickUp also hangs on the blocker.
 const mkTask = (over = {}) => ({
   id: over.id ?? 'T' + Math.random().toString(36).slice(2, 8),
   name: over.name ?? 'task',
@@ -35,7 +38,10 @@ const mkTask = (over = {}) => ({
   due_date: over.due !== undefined ? String(over.due) : null,
   priority: over.priority ? { priority: over.priority } : undefined,
   assignees: over.assignees ?? [],
-  dependencies: over.deps?.map(d => ({ depends_on: d })) ?? [],
+  dependencies: [
+    ...(over.deps ?? []).map(d => ({ task_id: over.id, depends_on: d })),
+    ...(over.mirrored ?? []).map(m => ({ task_id: m, depends_on: over.id })),
+  ],
   ...over.extra,
 });
 
@@ -137,6 +143,22 @@ test('velocity with zero completions projects null, confidence none', () => {
 });
 
 // ── dependencies ───────────────────────────────────────────────────────
+
+test('REGRESSION: mirrored dependency records do not create phantom self-deps', () => {
+  // A depends on B. ClickUp puts {task_id:A, depends_on:B} on BOTH tasks.
+  // Reading depends_on off B's copy used to make B depend on itself.
+  const tasks = [
+    mkTask({ id: 'A', name: 'A', deps: ['B'] }),
+    mkTask({ id: 'B', name: 'B', mirrored: ['A'] }),
+  ];
+  const d = computeDependencyAnalysis(tasks);
+  assert.equal(d.total_dependencies, 1, 'the single link must be counted once, not twice');
+  assert.equal(d.circular_dependencies_detected, false, 'no phantom cycle');
+  assert.deepEqual(d.dependency_graph.B, [], 'B has no upstream deps');
+  assert.deepEqual(d.dependency_graph.A, ['B']);
+  assert.equal(d.blocked_task_count, 1);
+  assert.equal(d.top_blockers[0].task_id, 'B');
+});
 
 test('dependency analysis finds blockers and cycles', () => {
   const tasks = [

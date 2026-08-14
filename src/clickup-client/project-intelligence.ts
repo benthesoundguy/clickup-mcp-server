@@ -207,12 +207,26 @@ export function computeVelocity(tasks: Task[], statuses: ListStatus[], now: numb
   };
 }
 
+/**
+ * ClickUp returns the SAME dependency record on BOTH tasks it links — the
+ * blocked task and the blocker each carry {task_id, depends_on}. Reading
+ * `depends_on` off every record therefore makes the blocker look like it
+ * depends on itself. Only records where task_id === this task are its own
+ * upstream dependencies. (Verified live 2026-08-14.)
+ */
+function upstreamOf(task: Task): string[] {
+  const deps = (task as any).dependencies || [];
+  return deps
+    .filter((d: any) => String(d.task_id) === String(task.id))
+    .map((d: any) => d.depends_on)
+    .filter(Boolean);
+}
+
 export function computeDependencyAnalysis(tasks: Task[]) {
   const taskMap = new Map(tasks.map(t => [t.id, t]));
   const graph: Record<string, string[]> = {};
   for (const t of tasks) {
-    const deps = (t as any).dependencies || [];
-    graph[t.id] = deps.map((d: any) => d.depends_on).filter(Boolean);
+    graph[t.id] = upstreamOf(t);
   }
 
   let totalDeps = 0, maxChainDepth = 0;
@@ -221,15 +235,12 @@ export function computeDependencyAnalysis(tasks: Task[]) {
   const blocksCount: Record<string, number> = {};
 
   for (const t of tasks) {
-    const deps = (t as any).dependencies || [];
-    totalDeps += deps.length;
+    const upstream = upstreamOf(t);
+    totalDeps += upstream.length;
     blockedByMap[t.id] = [];
-    for (const d of deps) {
-      const depId = d.depends_on;
-      if (depId) {
-        blockedByMap[t.id].push(depId);
-        blocksCount[depId] = (blocksCount[depId] || 0) + 1;
-      }
+    for (const depId of upstream) {
+      blockedByMap[t.id].push(depId);
+      blocksCount[depId] = (blocksCount[depId] || 0) + 1;
       if (depId === t.id) circularDeps.push(t.id);
     }
 

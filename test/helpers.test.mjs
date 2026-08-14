@@ -3,7 +3,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { trimTask, shapeTaskList, ok, fail, toolHandler, coerceDate, normalizeTaskDates } from '../build/tools/helpers.js';
+import { trimTask, shapeTaskList, ok, fail, toolHandler, coerceDate, coerceDuration, normalizeTaskDates } from '../build/tools/helpers.js';
 import { ClickUpClient } from '../build/clickup-client/index.js';
 import { TasksClient } from '../build/clickup-client/tasks.js';
 
@@ -123,6 +123,16 @@ test('normalizeTaskDates leaves explicit flags and numeric dates alone', () => {
   const p = normalizeTaskDates({ due_date: 1720000000000, due_date_time: false });
   assert.equal(p.due_date, 1720000000000);
   assert.equal(p.due_date_time, false);
+});
+
+test('coerceDuration parses ms, and human forms', () => {
+  assert.equal(coerceDuration(600000), 600000);
+  assert.equal(coerceDuration('600000'), 600000);
+  assert.equal(coerceDuration('90m'), 90 * 60000);
+  assert.equal(coerceDuration('1h 30m'), 90 * 60000);
+  assert.equal(coerceDuration('1.5h'), 90 * 60000);
+  assert.equal(coerceDuration('45s'), 45000);
+  assert.throws(() => coerceDuration('a while'), /Unparseable duration/);
 });
 
 // ── Bulk normalization against a mock server ───────────────────────────

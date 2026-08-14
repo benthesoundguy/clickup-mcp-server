@@ -9,22 +9,41 @@ export interface GetTimeEntriesParams {
 }
 
 export interface CreateTimeEntryData {
-  start?: string;
-  duration?: string;
-  end_time?: string;
+  /** Unix ms */
+  start?: number;
+  /** Milliseconds */
+  duration?: number;
+  /** Unix ms — sent to ClickUp as `stop` */
+  end_time?: number;
+  description?: string;
+  billable?: boolean;
+  tags?: string[];
+  /** Task to attach the entry to — sent to ClickUp as `tid` */
+  task_id?: string;
+}
+
+export interface UpdateTimeEntryData {
+  start?: number;
+  duration?: number;
+  end_time?: number;
   description?: string;
   billable?: boolean;
   tags?: string[];
   task_id?: string;
 }
 
-export interface UpdateTimeEntryData {
-  start?: string;
-  duration?: string;
-  end_time?: string;
-  description?: string;
-  billable?: boolean;
-  tags?: string[];
+/**
+ * Translate our parameter names into ClickUp's wire format.
+ * Verified live 2026-08-14: ClickUp requires `stop` (not `end_time`) and
+ * `tid` (not `task_id` — passing task_id is silently accepted but creates an
+ * entry attached to NOTHING). Both were silent-wrong-result bugs.
+ */
+function toWire(data: CreateTimeEntryData | UpdateTimeEntryData): Record<string, unknown> {
+  const { end_time, task_id, ...rest } = data as CreateTimeEntryData;
+  const wire: Record<string, unknown> = { ...rest };
+  if (end_time !== undefined) wire.stop = end_time;
+  if (task_id !== undefined) wire.tid = task_id;
+  return wire;
 }
 
 export interface StartTimerData {
@@ -58,7 +77,7 @@ export class TimeTrackingClient {
    * @returns The created time entry
    */
   async createTimeEntry(teamId: string, data: CreateTimeEntryData): Promise<any> {
-    return this.client.post(`/team/${teamId}/time_entries`, data);
+    return this.client.post(`/team/${teamId}/time_entries`, toWire(data));
   }
 
   /**
@@ -69,7 +88,7 @@ export class TimeTrackingClient {
    * @returns The updated time entry
    */
   async updateTimeEntry(teamId: string, entryId: string, data: UpdateTimeEntryData): Promise<any> {
-    return this.client.put(`/team/${teamId}/time_entries/${entryId}`, data);
+    return this.client.put(`/team/${teamId}/time_entries/${entryId}`, toWire(data));
   }
 
   /**

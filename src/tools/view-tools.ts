@@ -1,11 +1,24 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createClickUpClient } from '../clickup-client/index.js';
-import { createViewsClient } from '../clickup-client/views.js';
+import { createViewsClient, VIEW_TYPES, LEGACY_VIEW_TYPE_MAP, ViewType } from '../clickup-client/views.js';
 import { shapeTaskList } from './helpers.js';
 
 const clickUpClient = createClickUpClient();
 const viewsClient = createViewsClient(clickUpClient);
+
+/** Accept a real view-type string, or map a legacy 1-10 number onto one. */
+function resolveViewType(type: string | number | undefined): ViewType {
+  if (type === undefined) return 'list';
+  if (typeof type === 'number') {
+    const mapped = LEGACY_VIEW_TYPE_MAP[type];
+    if (!mapped) {
+      throw new Error(`View type ${type} has no ClickUp equivalent. Use one of: ${VIEW_TYPES.join(', ')}`);
+    }
+    return mapped;
+  }
+  return type as ViewType;
+}
 
 export function setupViewTools(server: McpServer): void {
   server.tool(
@@ -23,7 +36,10 @@ export function setupViewTools(server: McpServer): void {
       list_id: z.string().optional().describe('Required for list, create: the list ID'),
       view_id: z.string().optional().describe('Required for get, update, delete, set_*, view_tasks'),
       name: z.string().optional().describe('View name (create, update)'),
-      type: z.number().int().min(1).max(10).optional().describe('View type 1-10 (create): 1=List, 2=Board, 3=Calendar, 4=Gantt, 5=Mind Map, 6=Map, 7=Timeline, 8=Activity, 9=Box, 10=Table'),
+      type: z.union([
+        z.enum(VIEW_TYPES),
+        z.number().int(),
+      ]).optional().describe('View type (create): "list" (default), "board", "calendar", "table", "timeline", "workload", "activity", "map", "gantt", "conversation", "doc". Legacy numbers 1-10 are mapped where an equivalent exists.'),
 
       // Configuration fields
       filters: z.array(z.object({
@@ -51,8 +67,9 @@ export function setupViewTools(server: McpServer): void {
             return { content: [{ type: 'text', text: JSON.stringify(views) }] };
           }
           case 'create': {
-            if (!list_id || !name || !type) throw new Error('list_id, name, and type required for create');
-            const view = await viewsClient.createListView(list_id, name, type);
+            if (!list_id || !name) throw new Error('list_id and name required for create');
+            const resolved = resolveViewType(type);
+            const view = await viewsClient.createListView(list_id, name, resolved);
             return { content: [{ type: 'text', text: JSON.stringify(view) }] };
           }
           case 'get': {
@@ -64,7 +81,7 @@ export function setupViewTools(server: McpServer): void {
             if (!view_id) throw new Error('view_id required for update');
             const changes: any = {};
             if (name !== undefined) changes.name = name;
-            if (type !== undefined) changes.type = type;
+            if (type !== undefined) changes.type = resolveViewType(type);
             const view = await viewsClient.updateView(view_id, changes);
             return { content: [{ type: 'text', text: JSON.stringify(view) }] };
           }
@@ -102,7 +119,12 @@ export function setupViewTools(server: McpServer): void {
           }
           case 'set_settings': {
             if (!view_id || !settings) throw new Error('view_id and settings required for set_settings');
-            const view = await viewsClient.updateView(view_id, settings);
+            // Settings must be NESTED under `settings`. Spreading them at the
+            // top level is silently ignored by ClickUp (verified 2026-08-14).
+            const current = await viewsClient.getView(view_id);
+            const view = await viewsClient.updateView(view_id, {
+              settings: { ...(current as any).settings, ...settings },
+            });
             return { content: [{ type: 'text', text: JSON.stringify(view) }] };
           }
           case 'view_tasks': {

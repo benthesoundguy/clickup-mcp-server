@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { createClickUpClient } from '../clickup-client/index.js';
 import { createTimeTrackingClient } from '../clickup-client/time-tracking.js';
+import { coerceDate, coerceDuration } from './helpers.js';
 
 const clickUpClient = createClickUpClient();
 const timeTrackingClient = createTimeTrackingClient(clickUpClient);
@@ -31,22 +32,25 @@ export function setupTimeTrackingTools(server: McpServer): void {
 
   server.tool(
     'time_entry_create',
-    'Create a new manual time entry for a task. Requires team_id, task_id, and start time. Optional duration or end_time.',
+    'Create a manual time entry on a task. Requires team_id, task_id, start, and EITHER duration OR end_time.',
     {
       team_id: z.string().describe('The ID of the team (workspace) to create the time entry in'),
-      task_id: z.string().describe('The ID of the task to add time to (supports custom IDs like DEV-1234)'),
-      start: z.string().describe('Start time in YYYY-MM-DD HH:MM format (e.g., 2025-01-15 09:30)'),
-      duration: z.string().optional().describe('Duration in format like 1h 30m or 90m'),
-      end_time: z.string().optional().describe('End time in YYYY-MM-DD HH:MM format'),
+      task_id: z.string().describe('The ID of the task to attach the time to'),
+      start: z.union([z.number(), z.string()]).describe('Start time: Unix ms, "YYYY-MM-DD HH:MM", or "YYYY-MM-DD"'),
+      duration: z.union([z.number(), z.string()]).optional().describe('Duration: milliseconds, or "90m" / "1h 30m" / "1.5h". Provide this or end_time.'),
+      end_time: z.union([z.number(), z.string()]).optional().describe('End time: Unix ms or "YYYY-MM-DD HH:MM". Provide this or duration.'),
       description: z.string().optional().describe('Description for the time entry'),
       billable: z.boolean().optional().describe('Whether this time is billable'),
       tags: z.array(z.string()).optional().describe('Array of tag names to assign to the time entry')
     },
     async ({ team_id, task_id, start, duration, end_time, description, billable, tags }) => {
       try {
-        const data: any = { task_id, start };
-        if (duration) data.duration = duration;
-        if (end_time) data.end_time = end_time;
+        if (duration === undefined && end_time === undefined) {
+          throw new Error('Provide either duration or end_time — ClickUp rejects an entry with neither.');
+        }
+        const data: any = { task_id, start: coerceDate(start).ms };
+        if (duration !== undefined) data.duration = coerceDuration(duration);
+        if (end_time !== undefined) data.end_time = coerceDate(end_time).ms;
         if (description) data.description = description;
         if (billable !== undefined) data.billable = billable;
         if (tags) data.tags = tags;
@@ -65,16 +69,20 @@ export function setupTimeTrackingTools(server: McpServer): void {
     {
       team_id: z.string().describe('The ID of the team (workspace) containing the time entry'),
       entry_id: z.string().describe('The ID of the time entry to update'),
-      start: z.string().optional().describe('New start time in YYYY-MM-DD HH:MM format'),
-      duration: z.string().optional().describe('New duration in format like 1h 30m'),
-      end_time: z.string().optional().describe('New end time in YYYY-MM-DD HH:MM format'),
+      start: z.union([z.number(), z.string()]).optional().describe('New start time: Unix ms or "YYYY-MM-DD HH:MM"'),
+      duration: z.union([z.number(), z.string()]).optional().describe('New duration: milliseconds, or "90m" / "1h 30m"'),
+      end_time: z.union([z.number(), z.string()]).optional().describe('New end time: Unix ms or "YYYY-MM-DD HH:MM"'),
       description: z.string().optional().describe('New description for the time entry'),
       billable: z.boolean().optional().describe('Whether this time is billable'),
       tags: z.array(z.string()).optional().describe('Array of tag names to assign to the time entry')
     },
     async ({ team_id, entry_id, ...data }) => {
       try {
-        const result = await timeTrackingClient.updateTimeEntry(team_id, entry_id, data);
+        const patch: any = { ...data };
+        if (patch.start !== undefined) patch.start = coerceDate(patch.start).ms;
+        if (patch.end_time !== undefined) patch.end_time = coerceDate(patch.end_time).ms;
+        if (patch.duration !== undefined) patch.duration = coerceDuration(patch.duration);
+        const result = await timeTrackingClient.updateTimeEntry(team_id, entry_id, patch);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[TimeTrackingTools] Error updating time entry:', error);

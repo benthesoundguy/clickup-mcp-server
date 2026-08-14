@@ -1,5 +1,18 @@
 import { ClickUpClient } from './index.js';
 
+/** View types verified to work against the live API (2026-08-14). "form" is rejected. */
+export const VIEW_TYPES = [
+  'list', 'board', 'calendar', 'table', 'timeline',
+  'workload', 'activity', 'map', 'gantt', 'conversation', 'doc',
+] as const;
+export type ViewType = typeof VIEW_TYPES[number];
+
+/** Legacy numeric types this server used to advertise → real API strings. */
+export const LEGACY_VIEW_TYPE_MAP: Record<number, ViewType> = {
+  1: 'list', 2: 'board', 3: 'calendar', 4: 'gantt',
+  6: 'map', 7: 'timeline', 8: 'activity', 9: 'workload', 10: 'table',
+};
+
 export interface View {
   id: string;
   name: string;
@@ -24,8 +37,13 @@ export class ViewsClient {
     return res.views;
   }
 
-  /** Create a view on a list. */
-  async createListView(listId: string, name: string, type: number): Promise<View> {
+  /**
+   * Create a view on a list.
+   * ClickUp's view `type` is a STRING ("board", "calendar", ...). Passing a
+   * number is silently accepted and always yields a LIST view — verified live
+   * 2026-08-14, which is why every created view used to come back as a list.
+   */
+  async createListView(listId: string, name: string, type: ViewType): Promise<View> {
     const res = await this.client.post<any>(`/list/${listId}/view`, { name, type });
     return res.view;
   }
