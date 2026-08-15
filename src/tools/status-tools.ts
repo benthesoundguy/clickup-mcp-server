@@ -47,6 +47,18 @@ export function setupStatusTools(server: McpServer): void {
       try {
         const current: Status[] = await listsClient.getStatuses(list_id);
 
+        // Renaming or deleting a status silently reassigns every task in it
+        // to the list's default open status — ClickUp does this server-side
+        // with no warning. Count the affected tasks so the response can say so.
+        const countTasksInStatus = async (name: string): Promise<number> => {
+          try {
+            const res = await listsClient.getTasksInStatus(list_id, name);
+            return res;
+          } catch {
+            return -1; // unknown; never block the operation on this
+          }
+        };
+
         const requireExisting = (name: string): number => {
           const idx = current.findIndex(s => sameName(s.status, name));
           if (idx === -1) {
@@ -99,9 +111,21 @@ export function setupStatusTools(server: McpServer): void {
               type: status_type ?? next[idx].type,
             };
             assertOneOpen(next);
+            const renaming = new_name !== undefined && !sameName(new_name, status_name);
+            const affected = renaming ? await countTasksInStatus(status_name) : 0;
             await listsClient.setStatuses(list_id, next);
             const after = await listsClient.getStatuses(list_id);
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true, updated: status_name, statuses: after }) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              updated: status_name,
+              ...(renaming && affected !== 0 ? {
+                warning: affected > 0
+                  ? `ClickUp reassigned ${affected} task(s) that were in "${status_name}" to the list's default open status — renaming a status does not carry its tasks across.`
+                  : `Tasks that were in "${status_name}" may have been reassigned to the default open status by ClickUp.`,
+                tasks_reassigned: affected > 0 ? affected : 'unknown',
+              } : {}),
+              statuses: after,
+            }) }] };
           }
 
           case 'delete': {
@@ -110,13 +134,24 @@ export function setupStatusTools(server: McpServer): void {
             if (current[idx].type === 'open') {
               throw new Error(`"${status_name}" is the list's only "open" status and cannot be deleted. Create another open status first, or use update to change its type.`);
             }
+            const affected = await countTasksInStatus(status_name);
             const next = current.filter((_, i) => i !== idx);
             await listsClient.setStatuses(list_id, next);
             const after = await listsClient.getStatuses(list_id);
             if (after.some((s: Status) => sameName(s.status, status_name))) {
               throw new Error(`Delete reported success but "${status_name}" is still present on readback.`);
             }
-            return { content: [{ type: 'text', text: JSON.stringify({ success: true, deleted: status_name, statuses: after }) }] };
+            return { content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              deleted: status_name,
+              ...(affected !== 0 ? {
+                warning: affected > 0
+                  ? `ClickUp reassigned ${affected} task(s) that were in "${status_name}" to the list's default open status.`
+                  : `Tasks that were in "${status_name}" may have been reassigned to the default open status by ClickUp.`,
+                tasks_reassigned: affected > 0 ? affected : 'unknown',
+              } : {}),
+              statuses: after,
+            }) }] };
           }
 
           case 'reorder': {

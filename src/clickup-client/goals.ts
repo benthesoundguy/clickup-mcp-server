@@ -56,13 +56,20 @@ export class GoalsClient {
   }
 
   /** Update a key result's name. */
-  async updateKeyResult(goalId: string, keyResultId: string, name?: string): Promise<any> {
-    return this.client.put(`/goal/${goalId}/key_result/${keyResultId}`, { name });
+  /**
+   * Update a key result. The route is /key_result/{id} — NOT nested under the
+   * goal. The nested form 404s for PUT/DELETE even though POST creates under
+   * the goal (verified live 2026-08-14); goalId is kept for call-site
+   * compatibility and is not used.
+   */
+  async updateKeyResult(_goalId: string, keyResultId: string, changes: { name?: string; steps_current?: number; note?: string }): Promise<any> {
+    return this.client.put(`/key_result/${keyResultId}`, changes);
   }
 
   /** Delete a key result. */
-  async deleteKeyResult(goalId: string, keyResultId: string): Promise<any> {
-    return this.client.delete(`/goal/${goalId}/key_result/${keyResultId}`);
+  /** Delete a key result. Route is /key_result/{id}, not nested under the goal. */
+  async deleteKeyResult(_goalId: string, keyResultId: string): Promise<any> {
+    return this.client.delete(`/key_result/${keyResultId}`);
   }
 }
 

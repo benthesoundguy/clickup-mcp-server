@@ -72,6 +72,19 @@ export class ListsClient {
     return this.client.get(`/list/${listId}/member`);
   }
 
+  /**
+   * How many tasks currently sit in a given status on this list. Used to warn
+   * when a status rename/delete will cause ClickUp to silently reassign them.
+   */
+  async getTasksInStatus(listId: string, statusName: string): Promise<number> {
+    const res = await this.client.get<any>(`/list/${listId}/task`, {
+      statuses: [statusName],
+      include_closed: true,
+      subtasks: true,
+    });
+    return (res.tasks ?? []).length;
+  }
+
   async getStatuses(listId: string): Promise<any> {
     const res = await this.client.get<any>(`/list/${listId}`);
     return res.statuses || [];

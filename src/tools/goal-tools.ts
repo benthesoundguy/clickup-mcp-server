@@ -123,11 +123,17 @@ export function setupGoalTools(server: McpServer): void {
     {
       goal_id: z.string().describe('The ID of the goal containing the key result'),
       key_result_id: z.string().describe('The ID of the key result to update'),
-      name: z.string().optional().describe('New name for the key result')
+      name: z.string().optional().describe('New name for the key result'),
+      steps_current: z.number().optional().describe('Current progress value (moves the key result toward steps_end)'),
+      note: z.string().optional().describe('Progress note')
     },
-    async ({ goal_id, key_result_id, name }) => {
+    async ({ goal_id, key_result_id, name, steps_current, note }) => {
       try {
-        const result = await goalsClient.updateKeyResult(goal_id, key_result_id, name);
+        const changes: { name?: string; steps_current?: number; note?: string } = {};
+        if (name !== undefined) changes.name = name;
+        if (steps_current !== undefined) changes.steps_current = steps_current;
+        if (note !== undefined) changes.note = note;
+        const result = await goalsClient.updateKeyResult(goal_id, key_result_id, changes);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (error: any) {
         console.error('[GoalTools] Error updating key result:', error);

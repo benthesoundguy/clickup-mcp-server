@@ -122,6 +122,14 @@ export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 export function coerceDate(input: number | string): { ms: number; hasTime: boolean } {
   if (typeof input === 'number') return { ms: input, hasTime: true };
   const s = input.trim();
+  // MCP clients routinely stringify numbers on union-typed fields, so a Unix
+  // timestamp can arrive as "1786745000000". Date.parse() returns NaN for
+  // those, which used to make a documented input unreachable.
+  if (/^\d{10,}$/.test(s)) {
+    const n = Number(s);
+    // < 1e11 is far too small for milliseconds — treat it as seconds.
+    return { ms: n < 1e11 ? n * 1000 : n, hasTime: true };
+  }
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (dateOnly) {
     // Noon local time keeps the calendar date stable across timezones

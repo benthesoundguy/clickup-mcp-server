@@ -10,12 +10,17 @@ const viewsClient = createViewsClient(clickUpClient);
 /** Accept a real view-type string, or map a legacy 1-10 number onto one. */
 function resolveViewType(type: string | number | undefined): ViewType {
   if (type === undefined) return 'list';
+  // Clients may stringify numbers on union-typed fields; "2" must still map.
+  if (typeof type === 'string' && /^\d+$/.test(type.trim())) type = Number(type);
   if (typeof type === 'number') {
     const mapped = LEGACY_VIEW_TYPE_MAP[type];
     if (!mapped) {
       throw new Error(`View type ${type} has no ClickUp equivalent. Use one of: ${VIEW_TYPES.join(', ')}`);
     }
     return mapped;
+  }
+  if (!(VIEW_TYPES as readonly string[]).includes(type)) {
+    throw new Error(`Unknown view type "${type}". Valid types: ${VIEW_TYPES.join(', ')}`);
   }
   return type as ViewType;
 }
@@ -39,6 +44,7 @@ export function setupViewTools(server: McpServer): void {
       type: z.union([
         z.enum(VIEW_TYPES),
         z.number().int(),
+        z.string(), // tolerate stringified numbers ("2") and validate below
       ]).optional().describe('View type (create): "list" (default), "board", "calendar", "table", "timeline", "workload", "activity", "map", "gantt", "conversation", "doc". Legacy numbers 1-10 are mapped where an equivalent exists.'),
 
       // Configuration fields

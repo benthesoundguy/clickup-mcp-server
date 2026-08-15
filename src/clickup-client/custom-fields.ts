@@ -60,15 +60,23 @@ export class CustomFieldsClient {
       name: string;
       type: string;
       required?: boolean;
-      options?: Array<{ name: string; orderindex: number }>;
+      options?: Array<{ name: string; orderindex?: number }>;
     }
   ): Promise<any> {
-    // ClickUp requires dropdown/label options under `type_config`, not at the
-    // top level — a flat `options` array is rejected with FIELD_022
-    // (verified live 2026-08-14).
+    // Options belong under `type_config`, not at the top level (a flat array
+    // is rejected with FIELD_022). The two option-bearing types also disagree
+    // on the key: drop_down wants {name}, labels wants {label} — passing
+    // {name} to a labels field fails with FIELD_146. Both verified live
+    // 2026-08-14.
     const { options, ...rest } = params;
     const body: Record<string, unknown> = { ...rest };
-    if (options?.length) body.type_config = { options };
+    if (options?.length) {
+      body.type_config = {
+        options: params.type === 'labels'
+          ? options.map(o => ({ label: o.name }))
+          : options.map((o, i) => ({ name: o.name, orderindex: o.orderindex ?? i })),
+      };
+    }
     return this.client.post(`/list/${scopeId}/field`, body);
   }
 

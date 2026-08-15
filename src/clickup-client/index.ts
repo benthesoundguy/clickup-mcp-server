@@ -201,9 +201,22 @@ export class ClickUpClient {
         /* non-JSON error body */
       }
       const ecode: string | undefined = errBody?.ECODE;
-      const message = `ClickUp API error (${response.status}${ecode ? ` ${ecode}` : ''}) on ${method} ${endpoint}: ${
-        errBody?.err ?? errBody?.error ?? response.statusText
-      }`;
+      // ClickUp frequently answers with an empty body and no statusText,
+      // which used to surface as a bare "error (400) on POST /x:" — nothing
+      // an agent can act on. Fall back to an explanation of the status.
+      const STATUS_HINTS: Record<number, string> = {
+        400: 'Bad request — a parameter is missing, malformed, or not accepted for this resource.',
+        401: 'Unauthorized — the API token is invalid, or this resource belongs to another workspace.',
+        403: 'Forbidden — the token lacks permission for this resource.',
+        404: 'Not found — the id does not exist, was deleted, or is in a different workspace.',
+        405: 'Method not allowed — this route does not support that HTTP verb.',
+        429: 'Rate limited.',
+      };
+      const detail = errBody?.err ?? errBody?.error ?? errBody?.message
+        ?? (response.statusText || undefined)
+        ?? STATUS_HINTS[response.status]
+        ?? 'no detail supplied by ClickUp';
+      const message = `ClickUp API error (${response.status}${ecode ? ` ${ecode}` : ''}) on ${method} ${endpoint}: ${detail}`;
 
       const retryable =
         RETRYABLE_STATUSES.has(response.status) ||

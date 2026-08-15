@@ -30,7 +30,7 @@ import { setupReminderTools } from './tools/reminder-tools.js';
 import { setupStatusTools } from './tools/status-tools.js';
 import { setupProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
 
-const SERVER_VERSION = '3.1.0';
+const SERVER_VERSION = '3.2.0';
 
 // Transports:
 //   default              → stdio (Claude Desktop / Claude Code local config)
