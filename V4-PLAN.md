@@ -137,7 +137,7 @@ driving the changes. Findings land in the ClickUp "ClickUp MCP v5" list as they 
 
 # Results
 
-Four iterations. **186 tests pass.**
+Five iterations. **320 tests pass.**
 
 | Goal | Baseline | Target | **Actual** | |
 |---|---|---|---|---|
@@ -149,7 +149,7 @@ Four iterations. **186 tests pass.**
 | **G6** errors teach | — | every error | ✅ | asserted in tests |
 | **G7** rate-limit safety | none | adaptive | ✅ | stub-clock tested |
 | **G8** coverage | — | core workflows | ✅ | all 12 live-verified |
-| **G9** tests | 96 | all green | **186** | ✅ |
+| **G9** tests | 96 | all green | **320** | ✅ |
 
 **Same job, end to end** — "show me what's in the Cavalry Findings list" (30 tasks):
 
@@ -186,8 +186,53 @@ in each case a mock returns 200 and the test passes.
 guarantee; report only counts actually established; never mock away the thing you're least
 sure of, because that's exactly what a stub will cheerfully confirm.
 
+## Round 5 — the capability boundary, and the resource it didn't cover
+
+Four profiles, set by `MCP_PROFILE`: `read` < `agent` < `core` < `full`. The claim worth
+defending is `agent`: **it may add new objects, never alter or delete existing ones.** That is
+enforced at the HTTP chokepoint (`core/policy.ts`), not by which tools are registered, so a
+mistagged tool or a new endpoint added later cannot widen it.
+
+An external red-team pass confirmed the boundary held everywhere it was standing — every
+mutate/admin endpoint blocked under `agent`, denials propagating rather than being folded into
+partial-failure reports, no second door to the wire, tool sets strictly nested. It also found
+the boundary was standing in the wrong place for one capability.
+
+**The finding: `attach` reads the local filesystem, and a URL policy cannot see a file read.**
+`attach` was available under `agent` and called `readFile` on whatever path it was given. So the
+profile documented as unable to harm anything could attach `../.env`, read the ClickUp API
+token, and upload it — and that token carries full write access regardless of profile, which
+makes every other restriction in the process decorative. `~/.ssh/id_rsa` and `/etc/passwd` were
+reachable the same way.
+
+The fix is a second chokepoint with the same shape as the first (`core/localfile.ts`): one
+function every local read passes through, enforcing one sentence — *a read is permitted when no
+sandbox is configured, or when the file's real path, after resolving `..` and every symlink, is
+inside the configured root.* Symlink resolution is the load-bearing part; a textual `..` check
+is defeated by a symlink planted inside the root.
+
+There is no safe default root — the working directory is typically the project directory, which
+is exactly where `.env` lives — so under `agent`, `attach` is **withheld entirely** unless the
+operator names one:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MCP_PROFILE` | `full` | `read` \| `agent` \| `core` \| `full`. |
+| `CLICKUP_ATTACH_ROOT` | unset | Absolute directory local reads are confined to. Unset means unconfined for `core`/`full`, and **no `attach` tool at all** under `agent`. A misconfigured value is fatal at startup rather than ignored — a boundary that silently isn't there is worse than none. |
+
+Two smaller round-5 fixes: the encoded-separator filter only peeled one layer, so `%252F` got
+through where `%2F` was caught (latent — every agent-reachable path segment is a numeric ID —
+now decoded to a fixpoint); and `parseDate` accepted any number as an epoch, so `-5` meant 1969
+and an over-long value meant the year 5138, both rendering as success. `dates.ts` had no direct
+tests at all before this round.
+
+**The lesson, generalised from D5:** a guarantee is only as wide as the resource it models.
+`policy.ts` modelled ClickUp objects perfectly and local files not at all, so the gap was
+exactly the size of the resource nobody had named.
+
 ## Not done
 
-`users_*`/`guests_*` (they mutate billing seats), goals, portfolios, chat, webhooks,
-templates, views — all still served by v3. No CI. Custom-field *writes* are untested against
-real field types (this workspace defines none). **v4 is not deployed**; v3.4.1 still runs.
+No CI. Custom-field *writes* are untested against real field types (this workspace defines
+none). Pagination beyond one page is verified by constants and `last_page` logic rather than a
+live 100+ task list. The rate governor is stub-clock tested, never driven to real exhaustion.
+**v4 is not deployed**; v3.4.1 still runs, and the VPS is still on v3.3.1.

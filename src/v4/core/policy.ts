@@ -167,6 +167,36 @@ export const POLICIES: Record<Profile, WritePolicy> = {
 /** `%2F` / `%5C` — an encoded path separator hiding inside what looks like one segment. */
 const ENCODED_SEPARATOR = /%(?:2f|5c)/i;
 
+/** Give up after this many decode rounds; nothing legitimate needs even one. */
+const MAX_DECODE_ROUNDS = 5;
+
+/**
+ * True when *any* layer of decoding reveals a path separator.
+ *
+ * Testing the literal string alone is not enough: `%252F` decodes to `%2F`, which decodes to
+ * `/`. The single-encoded form was caught but the double-encoded one sailed through, because
+ * the regex looks for `%` followed by `2f` and finds `%` followed by `25`. Peeling one layer at
+ * a time and re-testing catches every depth rather than just the next one.
+ *
+ * Fails closed on malformed encoding: a path we cannot decode is a path whose segment
+ * boundaries we cannot reason about, and this is the branch where the safe answer is no.
+ */
+function hidesSeparator(path: string): boolean {
+  let cur = path;
+  for (let i = 0; i < MAX_DECODE_ROUNDS; i++) {
+    if (ENCODED_SEPARATOR.test(cur)) return true;
+    let next: string;
+    try {
+      next = decodeURIComponent(cur);
+    } catch {
+      return true;
+    }
+    if (next === cur) return false;
+    cur = next;
+  }
+  return true;
+}
+
 /**
  * Decode one layer of percent-encoding per segment.
  *
@@ -217,7 +247,7 @@ export function checkPolicy(
   // `/list/1%2Ftask%2Fvictim/task` reads as three segments here and possibly as five at the
   // origin; when those two readings can differ, the safe answer is no. Nothing legitimate on
   // the append allowlist takes a segment containing an encoded separator — they are all IDs.
-  if (ENCODED_SEPARATOR.test(path)) {
+  if (hidesSeparator(path)) {
     return blocked(
       policy,
       m,

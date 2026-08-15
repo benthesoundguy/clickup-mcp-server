@@ -19,6 +19,21 @@ export interface ToolProfile {
   min: Profile;
   /** Narrowed schema for profiles where the tool appears but must be limited. */
   restrict?: Partial<Record<Profile, Restriction>>;
+  /**
+   * Profiles at which this tool is withheld unless a local-file sandbox is configured.
+   *
+   * `attach` reads the local filesystem, a resource `core/policy.ts` cannot see, so the
+   * append-only guarantee does not extend to it. There is no safe default root — the working
+   * directory is typically the project directory, which is exactly where `.env` lives — so
+   * under `agent` the operator must name one explicitly. See `core/localfile.ts`.
+   */
+  needsSandbox?: Profile[];
+}
+
+/** Environment facts that affect availability, separate from the profile itself. */
+export interface ToolEnv {
+  /** Whether CLICKUP_ATTACH_ROOT resolved to a usable directory. */
+  hasSandbox: boolean;
 }
 
 const READ_ONLY_NOTE = 'Read-only under this profile.';
@@ -77,7 +92,13 @@ export const TOOL_PROFILES: Record<string, ToolProfile> = {
 
   // ---- append-only: `agent` and above ------------------------------------------------
   create: { min: 'agent' },
-  attach: { min: 'agent' },
+  attach: {
+    min: 'agent',
+    needsSandbox: ['agent'],
+    restrict: {
+      agent: { note: 'Files must be inside CLICKUP_ATTACH_ROOT.' },
+    },
+  },
 
   // ---- normal user work: `core` and above --------------------------------------------
   update: { min: 'core' },
@@ -91,8 +112,18 @@ export const TOOL_PROFILES: Record<string, ToolProfile> = {
 
 const RANK: Record<Profile, number> = { read: 0, agent: 1, core: 2, full: 3 };
 
-/** Tools visible under a profile, already narrowed. */
-export function toolsFor(all: ToolDef[], profile: Profile, narrow: NarrowFn): ToolDef[] {
+/**
+ * Tools visible under a profile, already narrowed.
+ *
+ * `env` defaults to the restrictive reading — no sandbox — so a caller that forgets to pass it
+ * withholds a capability rather than granting one.
+ */
+export function toolsFor(
+  all: ToolDef[],
+  profile: Profile,
+  narrow: NarrowFn,
+  env: ToolEnv = { hasSandbox: false },
+): ToolDef[] {
   const out: ToolDef[] = [];
   for (const tool of all) {
     const spec = TOOL_PROFILES[tool.name];
@@ -104,6 +135,7 @@ export function toolsFor(all: ToolDef[], profile: Profile, narrow: NarrowFn): To
       continue;
     }
     if (RANK[profile] < RANK[spec.min]) continue;
+    if (spec.needsSandbox?.includes(profile) && !env.hasSandbox) continue;
     const restriction = spec.restrict?.[profile];
     out.push(restriction ? narrow(tool, restriction) : tool);
   }

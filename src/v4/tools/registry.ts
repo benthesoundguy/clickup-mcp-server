@@ -11,6 +11,12 @@ export interface Ctx {
   cache: TtlCache;
   workspaceId: string;
   profile: Profile;
+  /**
+   * Canonical root that local file reads are confined to, or `null` for no confinement.
+   * See `core/localfile.ts` — the HTTP policy cannot see a filesystem read, so this is the
+   * separate boundary that covers it.
+   */
+  attachRoot: string | null;
   now: () => number;
   log: (msg: string) => void;
 }

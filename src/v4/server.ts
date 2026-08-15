@@ -20,7 +20,7 @@ import { structureTools } from './tools/structure.js';
 import { extraTools } from './tools/extras.js';
 import { extendedTools } from './tools/extended.js';
 
-export const SERVER_VERSION = '4.2.0';
+export const SERVER_VERSION = '4.3.0';
 
 export const allTools: ToolDef[] = [
   ...taskTools,
@@ -44,6 +44,12 @@ export interface BuildOptions {
   now?: () => number;
   log?: (msg: string) => void;
   cacheTtlMs?: number;
+  /**
+   * Canonical directory local file reads are confined to, already resolved by
+   * `resolveSandbox`. `null`/omitted means no confinement, which also withholds `attach`
+   * from the `agent` profile. See `core/localfile.ts`.
+   */
+  attachRoot?: string | null;
 }
 
 export interface BuiltServer {
@@ -70,6 +76,7 @@ export function buildContext(opts: BuildOptions): Ctx {
     cache,
     workspaceId,
     profile: opts.profile ?? 'full',
+    attachRoot: opts.attachRoot ?? null,
     now: opts.now ?? Date.now,
     log,
   };
@@ -133,11 +140,14 @@ function assemble(ctx: Ctx): McpServer {
         'Start with `tree` to see what exists and `meta` to see what values a list accepts. ' +
         'Unresolvable names raise an error listing the valid options rather than returning ' +
         'an empty result. ' +
-        `Capability profile: ${describeProfile(ctx.profile)}.`,
+        `Capability profile: ${describeProfile(ctx.profile)}.` +
+        (ctx.attachRoot ? ` Attachments may only be read from ${ctx.attachRoot}.` : ''),
     },
   );
 
-  for (const tool of toolsFor(allTools, ctx.profile, narrow)) {
+  for (const tool of toolsFor(allTools, ctx.profile, narrow, {
+    hasSandbox: ctx.attachRoot !== null,
+  })) {
     server.tool(tool.name, tool.description, tool.schema, async (args: unknown) => {
       try {
         const text = await tool.handler((args ?? {}) as Record<string, unknown>, ctx);

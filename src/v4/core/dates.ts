@@ -34,7 +34,7 @@ export interface ParsedDate {
  */
 export function parseDate(input: string | number, now: number = Date.now()): ParsedDate {
   if (typeof input === 'number') {
-    return { ms: normaliseEpoch(input), hasTime: true };
+    return { ms: normaliseEpoch(input, input), hasTime: true };
   }
 
   const raw = String(input).trim();
@@ -42,7 +42,7 @@ export function parseDate(input: string | number, now: number = Date.now()): Par
   if (!s) throw badDate(raw);
 
   // Bare epoch
-  if (/^\d{10}$|^\d{13}$/.test(s)) return { ms: normaliseEpoch(Number(s)), hasTime: true };
+  if (/^\d{10}$|^\d{13}$/.test(s)) return { ms: normaliseEpoch(Number(s), raw), hasTime: true };
 
   const startOfToday = startOfDay(now);
 
@@ -107,9 +107,32 @@ function badDate(raw: string): ClickUpToolError {
   });
 }
 
-function normaliseEpoch(n: number): number {
+/**
+ * Plausible window for an explicit epoch.
+ *
+ * Without this, a fat-fingered or sign-flipped epoch became a confidently wrong due date rather
+ * than an error: `-5` set a task due in 1969, and an over-long number set one in the year 5138.
+ * Both render as a success, which is the failure mode this whole module exists to prevent.
+ */
+const EPOCH_MIN = Date.UTC(2000, 0, 1);
+const EPOCH_MAX = Date.UTC(2100, 0, 1);
+
+function normaliseEpoch(n: number, raw: string | number): number {
+  if (!Number.isFinite(n)) throw implausibleEpoch(raw);
   // Seconds vs milliseconds: anything below ~2001 in ms is really seconds.
-  return n < 1e11 ? n * 1000 : n;
+  const ms = n < 1e11 ? n * 1000 : n;
+  if (ms < EPOCH_MIN || ms > EPOCH_MAX) throw implausibleEpoch(raw);
+  return ms;
+}
+
+function implausibleEpoch(raw: string | number): ClickUpToolError {
+  return new ClickUpToolError({
+    what: `${JSON.stringify(raw)} is not a plausible date.`,
+    fix:
+      'Epoch values are accepted in seconds or milliseconds, but must land between ' +
+      '2000-01-01 and 2100-01-01. If you meant a calendar date, write it as YYYY-MM-DD — a ' +
+      'task quietly due in 1969 looks like a success.',
+  });
 }
 
 export function startOfDay(ms: number): number {

@@ -94,6 +94,21 @@ describe('policy: matching is segment-exact', () => {
     assert.equal(checkPolicy(POLICIES.agent, 'POST', '/list/1/task'), null, 'plain create still works');
   });
 
+  test('DOUBLE-encoded separators cannot smuggle either', () => {
+    // Round 5 found the first fix only peeled one layer: `%252F` decodes to `%2F`, which the
+    // regex would have caught, but the literal string it was tested against contains `%25`.
+    // Latent rather than exploitable — every agent-reachable segment is a numeric ID — but a
+    // filter that stops at depth one is not a filter.
+    assert.ok(checkPolicy(POLICIES.agent, 'POST', '/list/1%252Ftask%252F86victim/task'));
+    assert.ok(checkPolicy(POLICIES.agent, 'POST', '/list/1%25252Ftask/task'), 'depth 3');
+    assert.ok(checkPolicy(POLICIES.agent, 'POST', '/list/1%255Ctask/task'), 'encoded backslash');
+  });
+
+  test('malformed percent-encoding fails closed on an allowlisted profile', () => {
+    // A path we cannot decode is one whose segment boundaries we cannot reason about.
+    assert.ok(checkPolicy(POLICIES.agent, 'POST', '/list/1%ZZ/task'));
+  });
+
   test('encoded separators cannot evade a denylist either', () => {
     assert.ok(checkPolicy(POLICIES.core, 'POST', '/team/9001%2Fuser'),
       'deny rules are tested against the decoded form too');

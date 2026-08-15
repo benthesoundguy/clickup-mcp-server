@@ -6,11 +6,11 @@
  */
 
 import { z } from 'zod';
-import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import type { Ctx, ToolDef } from './registry.js';
 import { qs } from '../core/http.js';
 import { ClickUpToolError, unresolved, ambiguous } from '../core/errors.js';
+import { readLocalFile } from '../core/localfile.js';
 import { parseDate } from '../core/dates.js';
 import { renderTable, truncate } from '../core/format.js';
 import { decodeEntities, rankCandidates } from '../core/text.js';
@@ -478,15 +478,9 @@ export const attachTool: ToolDef = {
       });
     }
 
-    let buf: Buffer;
-    try {
-      buf = await readFile(filePath);
-    } catch (err) {
-      throw new ClickUpToolError({
-        what: `Could not read ${filePath}.`,
-        fix: `Give an absolute path to a file this server can read. (${err instanceof Error ? err.message : String(err)})`,
-      });
-    }
+    // Goes through the filesystem chokepoint rather than `readFile`, so the sandbox applies
+    // however this tool is reached — including a direct handler call that bypassed the registry.
+    const { bytes: buf } = await readLocalFile(filePath, ctx.attachRoot);
     if (buf.length > MAX_UPLOAD_BYTES) {
       throw new ClickUpToolError({
         what: `${filePath} is ${Math.round(buf.length / 1048576)}MB.`,
