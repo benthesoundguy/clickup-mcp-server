@@ -1,5 +1,35 @@
 # Changelog
 
+## 3.3.1 — 2026-08-15
+
+Both fixes came out of a real install on the target host rather than a test
+environment.
+
+### Fixed
+- **`npm ci --omit=dev` failed outright.** The `prepare` lifecycle script ran
+  `npm run build` unconditionally, but npm runs `prepare` on production-only
+  installs too — where `tsc` isn't present. The result was
+  `sh: tsc: command not found`, npm code 127, and no `build/` directory: a
+  perfectly reasonable production install command, broken. `prepare` now runs
+  `scripts/prepare.mjs`, which builds when the toolchain is present (the
+  `npm install <git-url>` case, where npm does install devDependencies for
+  exactly this) and skips with an explanatory message when it isn't.
+- **Transitive `hono` advisory.** `hono@4.12.33` arrives under
+  `@modelcontextprotocol/sdk` → `@hono/node-server`, which
+  `StreamableHTTPServerTransport` imports at top level, so it is genuinely
+  loaded. Updated to `4.13.2`; production audit is now clean.
+
+  The four advisories are in `hono/cors`, `hono/jsx`, `hono/proxy` and
+  `hono/language` — none of which anything outside the SDK's `examples/`
+  directory imports, so the vulnerable paths were never reachable here. Updated
+  anyway: "not currently exploitable" is a worse property to depend on than
+  "not present," particularly for a process being exposed to the internet.
+
+### Note on `npm audit`
+A full `npm ci` reports ~10 vulnerabilities; 9 are in devDependencies (eslint 8,
+which is EOL, and its `glob`/`rimraf`/`inflight` chain) and never ship. Audit
+the tree you actually deploy: `npm audit --omit=dev`.
+
 ## 3.3.0 — 2026-08-15
 
 Deployment hardening for running as an unattended systemd service. No tool

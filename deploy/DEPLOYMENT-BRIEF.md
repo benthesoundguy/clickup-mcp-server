@@ -1,4 +1,8 @@
-# Deployment Brief — ClickUp MCP Server v3.3.0
+# Deployment Brief — ClickUp MCP Server v3.3.1
+
+> Evidence transcripts below were captured on 3.3.0. 3.3.1 changes only the
+> `prepare` script and a transitive dependency version; runtime behaviour,
+> tool surface, and env contract are identical.
 
 Answers to the deployment questionnaire, with evidence. Target: Ubuntu 24.04
 Minimal / aarch64 / Oracle A1, behind Cloudflare Tunnel at
@@ -158,8 +162,34 @@ MCP_HTTP_HOST=127.0.0.1 MCP_HTTP_PORT=8000 \
 node build/index.js
 ```
 
-Build from source first: `npm ci && npm run build` (then optionally
-`npm prune --omit=dev`).
+Build from source first:
+
+```bash
+git clone --branch v3.3.1 --depth 1 \
+  https://github.com/benthesoundguy/clickup-mcp-server.git clickup-mcp
+cd clickup-mcp
+npm ci             # installs devDeps; `prepare` builds automatically
+npm run build      # optional — `prepare` already ran tsc
+npm prune --omit=dev
+```
+
+Clone the **tag**, not `main` — a service should not silently move version on
+redeploy.
+
+`npm ci --omit=dev` alone is *not* enough: it skips `tsc`, so `build/` is never
+produced. Install full, build, then prune. (Before 3.3.1 that command failed
+outright with `tsc: command not found`; it now exits cleanly but still leaves no
+build output, so the order above matters.)
+
+### On `npm audit`
+
+A full `npm ci` reports ~10 vulnerabilities. **Nine are devDependencies**
+(eslint 8 and its `glob`/`rimraf`/`inflight` chain) and are removed by
+`npm prune --omit=dev`. Audit what you deploy:
+
+```bash
+npm audit --omit=dev     # → found 0 vulnerabilities  (as of 3.3.1)
+```
 
 `deploy/clickup-mcp.service` is a ready systemd unit — it passes
 `systemd-analyze verify` clean, reads secrets from `/etc/clickup-mcp/env`

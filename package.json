@@ -1,6 +1,6 @@
 {
   "name": "clickup-mcp-server",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "description": "A Model Context Protocol (MCP) server that provides a standardized interface for AI assistants to interact with the ClickUp API",
   "main": "build/index.js",
   "bin": {
@@ -15,7 +15,7 @@
     "smoke": "npm run build && node test/smoke.mjs",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "prepare": "npm run build"
+    "prepare": "node scripts/prepare.mjs"
   },
   "repository": {
     "type": "git",
