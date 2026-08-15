@@ -12,13 +12,17 @@ Measured, not assumed:
 | Thing | Measured | Note |
 |---|---|---|
 | Tool schemas on the wire | 66,972 B ≈ **18,603 tokens** | Paid on *every* request, before the model reads the user's message |
-| One `tasks_list` on a 100-task list | 153,428 B ≈ **42,619 tokens** | |
-| Same data, shaped to what an agent can act on | 2,937 B ≈ **816 tokens** | **98.1% smaller** |
+| Raw ClickUp JSON for 100 tasks | 153,428 B ≈ **42,619 tokens** | What the API returns |
+| v3 `tasks_list`, `detail:"full"` | 153,423 B ≈ **42,618 tokens** | Passes the raw payload straight through |
+| **v3 `tasks_list`, default (`lean`)** | 14,625 B ≈ **4,063 tokens** | **v3 already shapes its default output** — `shapeTaskList()` in `src/tools/helpers.ts` |
 | Signal share of a raw task object | **2.7%** | `id` + `name` + `custom_id` |
 | `sharing` + `watchers` + `creator` | **44.7%** | Zero agent value |
 | `project` + `folder` + `list` | **24.4%** | The *same parent* repeated 100× in a list-scoped query |
 
-A single "show me my tasks" turn costs **~61,000 tokens** before Claude writes a word.
+**The honest baseline is 4,063 tokens, not 42,619.** v3 solved much of the response-shaping
+problem already; the remaining waste is JSON key repetition, un-hoisted invariants, and fields
+(`url`, `date_updated`) that are derivable or rarely load-bearing. The real v3 problem is the
+**18,603-token tool surface** and the round trips its ID-first design forces.
 
 ### Four API facts that shape the design
 
@@ -54,7 +58,7 @@ Measured on the same fixtures as the table above, verified by tests in `test/`.
 | # | Goal | Baseline | Target | How it's verified |
 |---|---|---|---|---|
 | **G1** | Tool schema surface | 18,603 tok | **≤ 4,000 tok** | `test/budget.test.mjs` fails the build if exceeded |
-| **G2** | 100-task list response | 42,619 tok | **≤ 1,500 tok** | `test/budget.test.mjs` against a recorded 100-task fixture |
+| **G2** | 100-task list response | 4,063 tok (v3 default) | **≤ 1,500 tok** | `test/v4-budget.test.mjs` against a recorded 100-task fixture |
 | **G3** | Tool count | 88 | **≤ 14**, each a job a person would name | Reviewed, asserted in budget test |
 | **G4** | Name-first addressing | IDs everywhere | Every scope/assignee/status/tag arg accepts a **human name**; ≤ 3 API calls warm | Integration tests drive tools with names only |
 | **G5** | No silent wrong answers | see above | An unresolvable filter **always errors**, never returns `[]` | Dedicated test class |
@@ -138,7 +142,7 @@ Four iterations. **186 tests pass.**
 | Goal | Baseline | Target | **Actual** | |
 |---|---|---|---|---|
 | **G1** tool schemas | 18,603 tok | ≤ 4,000 | **2,811 tok** | ✅ −84.9% |
-| **G2** 100-task list | 42,619 tok | ≤ 1,500 | **736 tok** | ✅ −98.3% |
+| **G2** 100-task list | 4,063 tok *(v3 default)* | ≤ 1,500 | **745 tok** | ✅ −81.7% |
 | **G3** tool count | 88 | ≤ 14 | **12** | ✅ |
 | **G4** name-first addressing | — | names everywhere | ✅ | index `3+S`, cached |
 | **G5** no silent wrong answers | — | always error | ✅ | 5 classes closed |
@@ -147,7 +151,17 @@ Four iterations. **186 tests pass.**
 | **G8** coverage | — | core workflows | ✅ | all 12 live-verified |
 | **G9** tests | 96 | all green | **186** | ✅ |
 
-A "show me my tasks" turn: **~61,000 tokens → ~3,500.**
+**Same job, end to end** — "show me what's in the Cavalry Findings list" (30 tasks):
+
+| | round trips | result tokens | + resident schema | total |
+|---|---|---|---|---|
+| v3 | **4** (`workspaces_list` → `spaces` → `lists_search` → `tasks_list`) | 4,146 | 18,603 | **22,749** |
+| v4 | **1** (`find(scope:"Cavalry/Findings")`) | 1,127 | 2,811 | **3,938** |
+
+**5.8× less context, and one round trip instead of four.** The round trips are the real story:
+v3's `tasks_list` requires a `list_id`, `lists_search` requires a container id, and `spaces`
+requires a `workspace_id` — so an agent starting from a name has no choice but to walk the
+tree. v4 resolves the name server-side.
 
 ## What live probing found that nothing else would have
 

@@ -24,9 +24,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const BYTES_PER_TOKEN = 3.6;
 const tokens = (bytes) => Math.round(bytes / BYTES_PER_TOKEN);
 
-// Baselines measured against v3.4.1 on 2026-08-15. See V4-PLAN.md.
-const V3_SCHEMA_TOKENS = 18_603;
-const V3_LIST_TOKENS = 42_619;
+// Baselines measured on 2026-08-15. See V4-PLAN.md.
+const V3_SCHEMA_TOKENS = 18_603; // real tools/list off the v3 server
+// v3's tasks_list DEFAULTS to a shaped ("lean") response; this is that default, which is the
+// honest thing to compare against. The raw API — and v3's opt-in detail:"full" — is 42,619.
+const V3_LIST_TOKENS = 4_063;
+const RAW_API_LIST_TOKENS = 42_619;
 
 // Goal ceilings.
 const G1_MAX_SCHEMA_TOKENS = 4_000;
@@ -100,7 +103,7 @@ describe('G2 — response size', () => {
     assert.equal(raw.tasks.length, 100);
     // Confirms the baseline this is measured against is genuine, not a strawman.
     const rawTokens = tokens(JSON.stringify(raw).length);
-    assert.ok(rawTokens > 35_000, `fixture is only ${rawTokens} tokens; expected ~${V3_LIST_TOKENS}`);
+    assert.ok(rawTokens > 35_000, `fixture is only ${rawTokens} tokens; expected ~${RAW_API_LIST_TOKENS}`);
   });
 
   test(`100 tasks render in under ${G2_MAX_LIST_TOKENS} tokens`, () => {

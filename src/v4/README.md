@@ -11,15 +11,18 @@ v3 mirrors the ClickUp REST API one endpoint per tool. Measured against the live
 | | v3.4.1 | v4.0.0 | |
 |---|---|---|---|
 | Tool schemas, paid on **every** request | 66,972 B ≈ **18,603 tok** | 10,120 B ≈ **2,811 tok** | −84.9% |
-| One 100-task list | 153,428 B ≈ **42,619 tok** | 2,651 B ≈ **736 tok** | −98.3% |
+| One 100-task list | 14,625 B ≈ **4,063 tok** | 2,683 B ≈ **745 tok** | −81.7% |
+| Round trips to list a named list | **4** | **1** | |
 | Tools | 88 | 12 | |
 
-A "show me my tasks" turn cost **~61,000 tokens** before the model wrote a word. It now costs
-about 3,500.
+Note the response baseline: **v3 already shapes `tasks_list` by default** (`shapeTaskList()`,
+`detail: 'lean'`). Measuring against the *raw* API would show −98%, but that is v3's opt-in
+`detail:"full"` mode, not what it actually returns. 4,063 → 745 is the honest number.
 
-The savings aren't compression — 2.7% of a raw ClickUp task object is signal. `sharing`,
-`watchers` and `creator` are 44.7% of the payload; the parent list is repeated on all 100 rows
-of a query that was scoped to that one list.
+The bigger win is the tool surface and the round trips. v3's `tasks_list` requires a `list_id`,
+`lists_search` requires a container id, `spaces` requires a `workspace_id` — an agent holding
+only the name "Cavalry/Findings" must walk the tree to get anywhere. Same job end to end:
+**22,749 tokens over 4 calls → 3,938 over 1.**
 
 ## The rule everything follows
 
@@ -115,7 +118,7 @@ and an invalid JWT never vetoes a valid bearer token.
 
 ## Tests
 
-`npm test` — 182 tests, of which 96 are v3's. The v4 suite is offline: a stubbed fetch and a
+`npm test` — 186 tests, of which 96 are v3's. The v4 suite is offline: a stubbed fetch and a
 stubbed clock, so it never spends the real rate budget.
 
 - `v4-core.test.mjs` — resolver, errors, dates, text, formatting, rate governor
