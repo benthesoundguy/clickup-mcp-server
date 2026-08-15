@@ -6,26 +6,17 @@
   <a href="https://github.com/modelcontextprotocol/typescript-sdk"><img src="https://img.shields.io/badge/MCP%20SDK-1.x-orange" alt="MCP SDK"></a>
 </p>
 
-A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **88 tools covering 148 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation), and is exercised by 96 unit tests plus a 108-step live test suite.**
+A Model Context Protocol server for ClickUp, built around two ideas:
 
-This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). Current version **3.4.1** — see [CHANGELOG.md](CHANGELOG.md) for the full history.
+**Everything takes human names.** `find(scope: "Cavalry/Findings", assignee: "me", due: "overdue")` — no IDs, no walking the tree to discover them. Names that don't resolve raise an error listing the valid options, because a confidently empty result is worse than a failure.
 
-Much of what's here was found by pointing an adversarial agent at a throwaway workspace and telling it to break things. Three rounds of that produced ~50 defects; the ones that were ours are fixed, and the ones that are ClickUp's are documented below rather than hidden.
+**You choose what it can do.** Four capability profiles, enforced on every outgoing request. Hand an unattended agent the `agent` profile and it can create tasks and comments but cannot alter or delete anything that already exists.
 
-## Why this fork
+18 tools, 320 tests. Version **4.3.0** — see [CHANGELOG.md](CHANGELOG.md). A heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server).
 
-- **Verified surface** — every endpoint was probed against the real API; ~30 fabricated or dead operations from earlier versions were removed or rebuilt. What's registered, works.
-- **No silent wrong answers** — writes that reported success while doing nothing (or something else) were the single most common defect class found. Destructive and ambiguous operations now verify by readback and say what actually happened.
-- **LLM-shaped responses** — task lists return a lean field set by default (roughly 5× smaller than raw API payloads), with `detail:"full"` and `fields:[...]` opt-ins. Compact JSON everywhere.
-- **Rate-limit aware** — automatic retry with backoff on 429s honoring `Retry-After`; serial bulk writes are paced. ClickUp allows ~100 requests/minute per token on most plans.
-- **Project intelligence** — 8 analysis reports (health score, bottlenecks, velocity, dependency graph, sprint readiness, workload, risk, time) computed locally over *complete* task data, with custom-status-aware classification and an explicit flag when data was truncated.
-- **Consolidated tools** — multi-action tools (`views`, `docs`, `channels`, …) pack related operations behind one registration, keeping the tool list small enough for models to navigate.
-- **Chat on the v3 API** — channels, DMs, messages, replies, reactions, members.
-- **Secure webhook receiver** — standalone zero-dependency listener with raw-body HMAC-SHA256 validation (missing signature = rejected).
+> **Status:** 4.x is new. It has been through five adversarial red-team rounds but has not yet run in production. The previous 3.x line is still shipped in this repo and still what the reference deployment runs — see [Running 3.x](#running-3x).
 
-## Quick Start
-
-Distributed via GitHub (not npm):
+## Quick start
 
 ```bash
 git clone https://github.com/benthesoundguy/clickup-mcp-server
@@ -41,35 +32,104 @@ Add to your MCP client configuration:
   "mcpServers": {
     "clickup": {
       "command": "node",
-      "args": ["/path/to/clickup-mcp-server/build/index.js"],
+      "args": ["/path/to/clickup-mcp-server/build/v4/index.js"],
       "env": {
-        "CLICKUP_API_TOKEN": "YOUR_API_TOKEN"
+        "CLICKUP_API_TOKEN": "YOUR_API_TOKEN",
+        "MCP_PROFILE": "core"
       }
     }
   }
 }
 ```
 
-Get your API token from **ClickUp Settings → Apps → API Token**.
+Get your token from **ClickUp Settings → Apps → API Token**. The workspace is discovered automatically — there is nothing else to configure.
 
-### Remote mode (Claude web + mobile)
+## Capability profiles
 
-The server also speaks **streamable HTTP** for claude.ai custom connectors —
-which sync to the Claude mobile app:
+One binary, four profiles, selected with `MCP_PROFILE`. Install once and add a client entry per profile, enabling whichever a given agent should have.
 
-```bash
-MCP_TRANSPORT=http MCP_AUTH_TOKEN=$(openssl rand -hex 24) CLICKUP_API_TOKEN=... node build/index.js
-```
+| `MCP_PROFILE` | tools | schema cost | What it can do |
+|---|---|---|---|
+| `read` | 11 | 2,236 tok | Observe only. **No write of any kind can leave the process.** |
+| `agent` | 12 | 2,635 tok | Read, plus **append**: create tasks, comments, chat messages, checklist items, time logs. Cannot alter or delete anything existing. |
+| `core` *(default)* | 16 | 4,129 tok | Everything a normal user does. No membership, guest, or webhook administration. |
+| `full` | 18 | 4,748 tok | Unrestricted, including membership and webhooks. |
 
-Every request must present the auth token (`Authorization: Bearer <token>`, or
-in the path: `/mcp/<token>` — the form claude.ai's connector UI needs).
-`GET /health` is an unauthenticated probe.
+Schema cost is what the tool definitions consume in the model's context on **every** request, before any work happens. For comparison, 3.x costs ~18,600 tokens for 88 tools.
 
-#### Environment variables
+**`agent` is the interesting one.** It can add but never alter or destroy, so the worst an unattended agent can do is create clutter you can delete. That guarantee is enforced in three layers, and only the third is a security boundary:
+
+1. **Tool filtering** — which tools appear at all *(context cost + tool selection)*
+2. **Action filtering** — which actions a tool advertises *(context cost + honesty)*
+3. **Write policy** — an allowlist checked on every outgoing request, including uploads ← **the guarantee**
+
+Layers 1 and 2 depend on every tool being tagged correctly by every future contributor. Layer 3 does not: it inspects the actual request on its way out, so a mistagged tool, a refactor, or an endpoint added next year cannot widen a profile. The test suite proves this by calling `core`-only handlers *directly* with an `agent` context — bypassing layers 1 and 2 entirely — and asserting nothing reaches the wire.
+
+Things that look additive but are excluded from `agent` on purpose: attaching a tag, setting a custom field, and adding a dependency all mutate an *existing* task; creating a webhook starts streaming your data to an external endpoint. **Append-only and safe are not the same property.**
+
+### Why the default is `core` and not `full`
+
+`full` grants membership administration — inviting a user consumes a billable seat, removing one changes a real person's access — plus webhooks, which send workspace data off-site. None of that is what a first connection is for, and a default nobody changes has to be the safe one. Ask for administration by name when you want it; until you do, the refusal tells you exactly how.
+
+### Attachments and the filesystem
+
+`attach` reads a file from the machine the server runs on. That is a resource the write policy cannot see — it inspects URLs, and a file read has no URL — so it is governed separately by `CLICKUP_ATTACH_ROOT`:
+
+- **Set** → reads are confined to that directory. Containment is checked against the file's *real* path, after resolving `..` and every symlink.
+- **Unset** → `core` and `full` may read any file the process can. Under `agent`, **`attach` is not offered at all** (12 tools instead of 13), because there is no safe default root: the working directory is usually the project directory, which is where `.env` lives.
+
+A misconfigured root is fatal at startup rather than ignored — a boundary that silently isn't there is worse than none.
+
+## Tools
+
+| Tool | Min profile | Job |
+|---|---|---|
+| `find` | read | Query tasks anywhere. Scope, status, assignee, tags, due date — all by name. |
+| `task` | read | One task in full, optionally with comments and subtasks. |
+| `tree` | read | Workspace structure, printing the exact paths other tools accept. |
+| `meta` | read | What values are legal here — statuses a list accepts, tags in a space, assignable people. |
+| `whoami` | read | Identity, workspace, rate-limit budget, server health. |
+| `docs` | read | Search ClickUp Docs, or read one. |
+| `comment` | read | Read a task's comment thread, or post to it. |
+| `time` | read | `start` · `stop` · `current` · `log` · `report` |
+| `fields` | read | Inspect a list's custom fields, or set one by name. |
+| `chat` | read | `channels` · `read` · `post` · `members` |
+| `checklist` | read | `list` · `add` · `add_item` · `rename` · `remove` · `check` · `uncheck` |
+| `create` | agent | Create one or more tasks — pass an array for bulk. |
+| `attach` | agent | Upload a local file to a task (max 25MB). See above. |
+| `update` | core | Update, move, assign, close, or delete — pass several IDs for bulk. |
+| `lists` | core | `create` · `rename` · `delete` for lists and folders. Deletes need `confirm: true`. |
+| `goals` | core | `list` · `get` · `create` · `update` · `delete`, including key results. |
+| `people` | full | Members, guests, seats, groups, invitations, admin rights. |
+| `webhooks` | full | `list` · `create` · `delete` |
+
+Tools narrow rather than vanish where it makes sense: under `read`, `comment` shows only its reading arguments and `checklist` advertises only `list`, so the schema tells the truth about what this connection can do instead of advertising actions that would be refused.
+
+## The rule everything follows
+
+**Never return a confident wrong answer.** ClickUp makes this easy to get wrong, because it answers bad input with cheerful nonsense:
+
+| Request | ClickUp says | Which reads as |
+|---|---|---|
+| `?assignees[]=99999999` | `200 {"tasks":[]}` | "Sam has no work" — there is no Sam |
+| `?query=anything` | `200` + unfiltered results | a filtered search that wasn't |
+| `POST /list/{dest}/task/{id}` | `200 {}` | "moved" — it didn't move |
+| `PUT /task/{id}` with `list_id` | `200` | "moved" — silently ignored |
+| `GET /task/{bad-id}` | `401 Team not authorized` | a permissions problem — it's a typo |
+| `?order_by=bogus` | `500` | an outage — it's a bad enum |
+
+So this server resolves names and **raises on ambiguity** ("Findings" matching four lists is an error naming all four, never a coin flip); **raises rather than returning empty** when a filter value doesn't resolve; **validates enums client-side** against what the list actually accepts; **verifies writes it cannot trust** by reading the object back; and **never overstates a count** — a query that stopped paging reports `100+ matches`, and any client-side filter reports how much it actually scanned.
+
+Errors say what failed, why, and what to do next, with the valid options listed.
+
+## Environment variables
 
 | Variable | Default | Notes |
 |---|---|---|
 | `CLICKUP_API_TOKEN` | — | **Required.** ClickUp personal API token. |
+| `MCP_PROFILE` | `core` | `read` · `agent` · `core` · `full`. Invalid values are fatal, never silently downgraded. |
+| `CLICKUP_ATTACH_ROOT` | unset | Absolute directory that `attach` may read from. Required for `attach` under `agent`. |
+| `CLICKUP_WORKSPACE_ID` | discovered | Only needed if the token can see several workspaces and you want a specific one. |
 | `MCP_TRANSPORT` | `stdio` | Set to `http` for streamable HTTP. |
 | `MCP_HTTP_HOST` | `127.0.0.1` | Bind address. Loopback by default — put a proxy or tunnel in front rather than binding `0.0.0.0`. |
 | `MCP_HTTP_PORT` | `8000` | Also selects HTTP mode if set. |
@@ -77,123 +137,90 @@ in the path: `/mcp/<token>` — the form claude.ai's connector UI needs).
 | `MCP_STRICT_ENV` | off | **Set to `1` for servers** — see below. |
 | `MCP_ALLOW_TOKEN_IN_PATH` | off in strict | Re-enables the `/mcp/<token>` URL form under strict mode. |
 | `MCP_NO_ENV_FILE` | off | Disables the `.env` file lookup (implied by strict mode). |
-| `CF_ACCESS_TEAM_DOMAIN` | — | Cloudflare Access team (`myteam`, `myteam.cloudflareaccess.com`, or a full URL). Enables Access JWT validation. |
+| `CF_ACCESS_TEAM_DOMAIN` | — | Cloudflare Access team. Enables Access JWT validation. |
 | `CF_ACCESS_AUD` | — | Access application AUD tag. Required alongside the team domain — neither alone enables anything. |
 | `MCP_PUBLIC_URL` | derived | Public origin used in the `WWW-Authenticate` discovery hint. |
 
-#### Cloudflare Access (optional third auth mode)
+## Remote mode (Claude web + mobile)
 
-Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` and the server validates the
-`Cf-Access-Jwt-Assertion` header Access puts on every request it forwards: RS256
-against the team JWKS, plus `exp`, `iss`, and `aud`. Both Access flows validate
-through one path — a browser/OAuth login carries `email`, a service token
-carries `common_name`.
+The server speaks **streamable HTTP** for claude.ai custom connectors, which sync to the Claude mobile app:
 
-This is defence in depth. A request that reaches the origin *without* passing
-through Access — a tunnel misconfiguration, a second ingress, something on the
-host's network — cannot impersonate an Access-authenticated caller. It fails
-closed: `alg` is pinned to RS256 (so `alg: none` and HS256 confusion are
-rejected), an unreachable JWKS denies rather than bypasses, and the JWKS URL
-comes from configuration, never from the token.
+```bash
+MCP_TRANSPORT=http MCP_AUTH_TOKEN=$(openssl rand -hex 24) \
+MCP_PROFILE=core CLICKUP_API_TOKEN=... node build/v4/index.js
+```
 
-**Bearer auth keeps working.** A request is authorized by a valid Access JWT *or*
-a valid bearer token, so header-capable agents need no changes.
+Every request must present the auth token (`Authorization: Bearer <token>`, or in the path as `/mcp/<token>` — the form claude.ai's connector UI needs). `GET /health` is an unauthenticated probe that reports the version, active profile, tool count, and attachment root.
 
-The origin does **not** serve `/.well-known/oauth-*` — with Managed OAuth
-enabled, Access is the authorization server and serves discovery at the edge.
+### Cloudflare Access (optional third auth mode)
 
-#### Strict mode (`MCP_STRICT_ENV=1`)
+Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` and the server validates the `Cf-Access-Jwt-Assertion` header Access puts on every request it forwards: RS256 against the team JWKS, plus `exp`, `iss`, and `aud`. Both Access flows validate through one path — a browser login carries `email`, a service token carries `common_name`.
 
-The posture for an unattended deployment. Secrets must come from the
-environment, the server never invents or persists a credential, and it exits `1`
-with an actionable message rather than starting misconfigured. It also refuses
-the URL-path token form, which lands the credential in proxy access logs.
+This is defence in depth. A request reaching the origin *without* passing through Access — a tunnel misconfiguration, a second ingress, something on the host's network — cannot impersonate an Access-authenticated caller. It fails closed: `alg` is pinned to RS256 (so `alg: none` and HS256 confusion are rejected), an unreachable JWKS denies rather than bypasses, and the JWKS URL comes from configuration, never from the token.
 
-This matters because the `.env`-file lookup deliberately outranks `process.env`
-— a desktop host rewrites its own config file from memory on quit, so the file
-has to win there. On a server that precedence is backwards: a stray `.env` in
-the working directory would silently outrank the systemd unit. Strict mode
-turns the lookup off.
+**Bearer auth keeps working.** A request is authorized by a valid Access JWT *or* a valid bearer token, so header-capable agents need no changes.
 
-Verified on Ubuntu 24.04 / `aarch64` / Node 22: no native dependencies, 96
-production packages, 26 MB `node_modules`, ~98 MB idle RSS, and no disk writes.
+The origin does **not** serve `/.well-known/oauth-*` — with Managed OAuth enabled, Access is the authorization server and serves discovery at the edge.
 
-See [deploy/DEPLOY.md](deploy/DEPLOY.md) for the full recipe: VPS setup script,
-hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
+### Strict mode (`MCP_STRICT_ENV=1`)
 
-## Tools (88 registered / 148 operations)
+The posture for an unattended deployment. Secrets must come from the environment, the server never invents or persists a credential, and it exits `1` with an actionable message rather than starting misconfigured. It also refuses the URL-path token form, which lands the credential in proxy access logs.
 
-### Single-operation tools
+This matters because the `.env`-file lookup deliberately outranks `process.env` — a desktop host rewrites its own config file from memory on quit, so the file has to win there. On a server that precedence is backwards: a stray `.env` in the working directory would silently outrank the systemd unit. Strict mode turns the lookup off.
 
-| Domain | Tools |
+See [deploy/DEPLOY.md](deploy/DEPLOY.md) for the full recipe: VPS setup script, hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
+
+## Upgrading from 3.x
+
+The tool names are entirely different — 4.x is a rewrite, not a rename. Anything holding hard-coded 3.x tool names (saved prompts, agent instructions, scripts) needs updating.
+
+The mapping is mostly many-to-one:
+
+| 3.x | 4.x |
 |---|---|
-| **Workspaces** | `workspaces_list`, `workspaces_seats_get` |
-| **Tasks** | `tasks_list`, `tasks_get`, `tasks_create`, `tasks_update`, `tasks_delete`, `tasks_move`, `tasks_move_bulk`, `tasks_link`, `tasks_unlink`, `tasks_members_list`, `tasks_create_bulk`, `tasks_update_bulk` |
-| **Lists** | `lists_search`, `lists_create`, `lists_get`, `lists_update`, `lists_delete`, `lists_create_in_space`, `lists_create_from_template_in_folder`, `lists_create_from_template_in_space`, `lists_members_list`, `lists_list_in_space` |
-| **Folders** | `folders_create`, `folders_update`, `folders_delete` |
-| **Spaces** | `spaces` |
-| **Comments** | `tasks_comments_list`, `tasks_comments_create`, `lists_comments_list`, `lists_comments_create`, `views_comments_list`, `views_comments_create`, `comments_update`, `comments_delete`, `comments_replies_list`, `comments_replies_create` |
-| **Checklists** | `checklists_create`, `checklists_update`, `checklists_delete`, `checklists_items_create`, `checklists_items_update`, `checklists_items_delete` |
-| **Time** | `time_entries_list`, `time_entry_create`, `time_entry_update`, `time_entry_delete`, `time_tracking_start`, `time_tracking_stop`, `time_tracking_current` |
-| **Goals** | `goals_list`, `goals_create`, `goals_get`, `goals_update`, `goals_delete`, `goals_key_results_create`, `goals_key_results_update`, `goals_key_results_delete` |
-| **Guests** | `guests_invite`, `guests_get`, `guests_update`, `guests_remove`, `guests_attach`, `guests_detach` |
-| **Users** | `users_list`, `users_invite`, `users_update`, `users_remove` |
-| **Tags** | `tags_assign`, `tags_unassign` |
-| **Other** | `templates`, `reminders_create`, `server_info` |
+| `workspaces_list`, `spaces`, `lists_search`, `lists_list_in_space` | `tree` |
+| `tasks_list` | `find` |
+| `tasks_get` | `task` |
+| `tasks_create`, `tasks_create_bulk` | `create` |
+| `tasks_update`, `tasks_delete`, `tasks_move`, `tasks_link`, `tags_assign`, `dependencies` | `update` |
+| `lists_create`, `lists_update`, `lists_delete`, `folders_*` | `lists` |
+| `statuses list`, `tags list`, `custom_fields list` | `meta` |
+| `users_*`, `guests_*`, `groups`, `workspaces_seats_get` | `people` |
+| `time_*` | `time` |
+| `*_comments_*`, `comments_*` | `comment` |
+| `checklists_*` | `checklist` |
+| `channels*` | `chat` |
 
-### Consolidated multi-action tools
+**Not carried over:** `project_intelligence` (the eight local analysis reports) and `reminders_create`. Status *management* — creating, renaming, reordering statuses — is also absent; `meta` reads statuses but does not change them. If you need any of these, run 3.x.
 
-| Tool | Actions |
-|---|---|
-| `views` | list, create, get, update, delete, set_filters, set_grouping, set_sorting, set_settings, view_tasks |
-| `channels_messages` | list, send, update, delete, replies_list, replies_create, reactions_list, reactions_create, reactions_delete, tagged_users |
-| `project_intelligence` | health, bottlenecks, velocity, dependencies, sprint, workload, risk, time_report |
-| `docs` | get, list, create, search, pages_list, pages_create, pages_update |
-| `channels` | list, get, create, update, delete, dm |
-| `statuses` | list, create, update, delete, reorder, replace_all |
-| `webhooks` | list, create, update, delete, process |
-| `custom_fields_values` | get, set, remove, bulk_set |
-| `groups` | list, create, update, delete |
-| `tags` | list, create, update, delete |
-| `attachments` | list, create (by URL), upload |
-| `dependencies` | create, get, delete |
-| `custom_fields` | list, create |
-| `channels_members` | list, followers |
+### Running 3.x
 
-### Moving vs linking tasks
+3.x is still built and shipped from this repo:
 
-`tasks_move` performs a **true home-list move** (ClickUp's v3 endpoint); `tasks_move_bulk` does up to 50 at once with rate-limit pacing — the "empty the inbox" operation. `tasks_link` / `tasks_unlink` are the *tasks-in-multiple-lists* feature: they add a task to an **additional** list without changing its home. Link-then-unlink is not a move, and `tasks_unlink` refuses to remove a task from its home list.
+```bash
+npm run start:v3       # via the package script
+node build/index.js    # the 3.x entry point directly
+```
 
-### Known API limitations (not bugs — the API genuinely lacks these)
+Point an MCP client at `build/index.js` instead of `build/v4/index.js` to keep using it.
 
-- **Reminders** are create-only; they cannot be listed, updated, or deleted.
+The reference systemd unit in `deploy/` is deliberately still pinned to 3.x, because a running service should not change major version because a package default moved underneath it. Migrate it by pointing `ExecStart` at `build/v4/index.js` and setting `MCP_PROFILE` explicitly.
+
+## Known ClickUp API limitations
+
+Not bugs here — the API genuinely lacks these, and this server reports the limit rather than faking around it.
+
+- **Tasks cannot be moved between lists.** `POST /list/{dest}/task/{id}` returns `200 {}` and does nothing without the "Tasks in Multiple Lists" ClickApp; `PUT` with `list_id` is silently ignored; `/move` 404s. `update`'s move path reads the task back and fails loudly rather than reporting a move that didn't happen.
+- **Attachments have no list endpoint** — `task` reads them off the task object. Uploads are multipart-only, capped at 25MB.
+- **Docs** cannot be renamed or deleted, and pages cannot be deleted.
 - **Custom field definitions** can be listed and created, not edited or deleted.
-- **Docs** cannot be renamed/deleted and pages cannot be deleted; edit content via `pages_update`.
-- **Users** cannot be listed directly; members are read from the workspace object.
-- Chat reactions accept colon-free emoji shortcodes (`+1`, `heart`), not names like `thumbsup` or literal emoji.
-- **Renaming or deleting a status reassigns its tasks.** ClickUp silently moves every task in that status to the list's default open status. The `statuses` tool counts them first and returns an explicit `warning` with `tasks_reassigned`, but the reassignment itself cannot be prevented.
-- Statuses have no per-status endpoint — the whole array is replaced on every change. `reorder` only reorders; `replace_all` is the destructive path and reports what it removed.
-- Status and tag names are stored lower-cased; all matching here is case-insensitive.
-- A task added to a second list via `tasks_link` does not appear in that list's `tasks_list` results.
-- Date custom fields require Unix milliseconds; `YYYY-MM-DD` is rejected by ClickUp for those (task `due_date`/`start_date` accept both, converted here).
-- Attachments have no list endpoint; `attachments list` reads them off the task object. Attach-by-URL is fetched server-side and uploaded, since ClickUp's endpoint is multipart-only (25MB cap).
+- **Date custom fields require Unix milliseconds**; `YYYY-MM-DD` is rejected by ClickUp for those. Task `due_date`/`start_date` accept both and are converted here.
+- **Status and tag names are stored lower-cased**; matching here is case-insensitive throughout.
+- **Lists override their space's statuses constantly**, so "what statuses are valid" is a per-list question. `meta` answers it per list.
+- ClickUp answers an invalid enum with **HTTP 500**, so enums are validated client-side before sending.
+- The rate limit is roughly **100 requests/minute per token**, shared across everything using it. `whoami` reports the live budget; the server paces itself against the `x-ratelimit-*` headers.
 
-## Project Intelligence
-
-`project_intelligence` computes structured analytics locally from live data — one call per report:
-
-- **health** — status distribution, health score (0–100), letter grade, blocked/overdue/stale rates
-- **bottlenecks** — per-status dwell time, stalled tasks, top bottleneck
-- **velocity** — completions over 7/14/30 days, projection to done, confidence
-- **dependencies** — chain analysis, top blockers, circular dependency detection
-- **sprint** — ready/blocked/in-progress split, capacity score, recommended scope
-- **workload** — per-assignee load with status breakdown, overload flags, unassigned count
-- **risk** — per-task score combining overdue + blocked + stale + priority drivers
-- **time_report** — hours per person, per task, per day
-
-Reports fetch **all** task pages (up to 3,000 tasks) and classify statuses by the list's own status *types*, so custom workflows ("Shipped 🚀") are counted correctly. If the page cap is hit, the report says so (`data_complete: false`) instead of silently reporting partial numbers. `health` caps its inline task dump at 25 (`tasks_included` / `tasks_truncated`) while the aggregates still cover every task.
-
-## Webhook Receiver (optional)
+## Webhook receiver (optional)
 
 Process ClickUp webhook events without external infrastructure:
 
@@ -209,22 +236,18 @@ WEBHOOK_PORT=3001 WEBHOOK_SECRET=your_secret node build/webhook-receiver/index.j
 ## Development
 
 ```bash
-git clone https://github.com/benthesoundguy/clickup-mcp-server
-cd clickup-mcp-server
 npm install
 npm run build
-npm test          # 96 unit tests (mocked HTTP — no token needed)
-npm run smoke     # 108-step live CRUD walk (needs CLICKUP_API_TOKEN; creates
-                  # and deletes its own sandbox in your workspace)
+npm test          # 320 tests, mocked HTTP — no token needed
+npm run smoke     # live CRUD walk (needs CLICKUP_API_TOKEN; creates and
+                  # deletes its own sandbox in your workspace)
 ```
+
+Architecture notes for 4.x live in [src/v4/README.md](src/v4/README.md); the design rationale and measurements are in [V4-PLAN.md](V4-PLAN.md).
 
 ### Debugging a fix that "didn't work"
 
-Call `server_info`. It reports the running build's timestamp. MCP hosts spawn
-their own server process at session start and hold it, so a rebuild does not
-reach an already-running session — if the build stamp predates your change,
-restart the host app. This accounted for several phantom bug reports before
-the tool existed.
+Call `whoami`. It reports the running build's version and stamp. MCP hosts spawn their own server process at session start and hold it, so a rebuild does not reach an already-running session — if the stamp predates your change, restart the host app. This accounted for several phantom bug reports before the tool existed.
 
 ## License
 

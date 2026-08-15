@@ -1,21 +1,24 @@
 {
   "name": "clickup-mcp-server",
-  "version": "3.4.1",
-  "description": "A Model Context Protocol (MCP) server that provides a standardized interface for AI assistants to interact with the ClickUp API",
-  "main": "build/index.js",
+  "version": "4.3.0",
+  "description": "A Model Context Protocol (MCP) server for ClickUp: 18 tools addressed by name rather than ID, with capability profiles that make it safe to hand to an untrusted agent",
+  "main": "build/v4/index.js",
   "bin": {
-    "clickup-mcp-server": "./build/index.js",
+    "clickup-mcp-server": "./build/v4/index.js",
+    "clickup-mcp-server-v3": "./build/index.js",
     "clickup-mcp-receiver": "./build/webhook-receiver/index.js"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node --esm src/index.ts",
-    "start": "node build/index.js",
+    "dev": "ts-node --esm src/v4/index.ts",
+    "start": "node build/v4/index.js",
+    "start:v3": "node build/index.js",
     "test": "npm run build && node --test test/*.test.mjs",
     "smoke": "npm run build && node test/smoke.mjs",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "prepare": "node scripts/prepare.mjs"
+    "prepare": "node scripts/prepare.mjs",
+    "dev:v3": "ts-node --esm src/index.ts"
   },
   "repository": {
     "type": "git",
@@ -32,7 +35,7 @@
   ],
   "author": "benthesoundguy",
   "contributors": [
-    "David Whatley (https://davidwhatley.com) — original clickup-mcp-server author",
+    "David Whatley (https://davidwhatley.com) \u2014 original clickup-mcp-server author",
     "ClickUp MCP Server Contributors"
   ],
   "license": "MIT",

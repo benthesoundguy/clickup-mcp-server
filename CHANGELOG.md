@@ -1,5 +1,101 @@
 # Changelog
 
+## 4.3.0 — 2026-08-15
+
+A ground-up rewrite. 88 tools that mirrored ClickUp's REST API become 18 organised around jobs,
+addressed by name rather than ID, with capability profiles that make the server safe to hand to
+an untrusted agent. The 3.x line is unchanged and still shipped — see *Breaking* below.
+
+Not yet run in production. Five adversarial red-team rounds, 320 tests, zero days of real use.
+
+### Breaking
+
+- **The default entry point is now 4.x.** `main`, the `clickup-mcp-server` bin, and `npm start`
+  all point at `build/v4/index.js`. 3.x remains available as `clickup-mcp-server-v3` /
+  `npm run start:v3` / `build/index.js`, and the reference systemd unit in `deploy/` is
+  deliberately still pinned to it: a running service must not change major version because a
+  package default moved underneath it.
+- **Every tool name changed.** This is a rewrite, not a rename — anything holding hard-coded
+  tool names needs updating. README has the full mapping; it is mostly many-to-one
+  (`workspaces_list` + `spaces` + `lists_search` → `tree`, and so on).
+- **`MCP_PROFILE` defaults to `core`, not `full`.** `full` grants membership administration
+  (billable seats, real people's access) and webhooks (workspace data sent off-site). A default
+  nobody changes has to be the safe one. Set `MCP_PROFILE=full` explicitly to restore 3.x
+  behaviour.
+- **Dropped:** `project_intelligence` (the eight local analysis reports), `reminders_create`,
+  and status *management* — `meta` reads statuses but cannot create, rename, or reorder them.
+  Run 3.x if you need these.
+
+### Added
+
+- **Capability profiles** — `read` · `agent` · `core` · `full`, selected with `MCP_PROFILE`.
+  Enforced in three layers, only the third of which is a security boundary: an allowlist checked
+  on every outgoing request, including uploads. A mistagged tool, a refactor, or an endpoint
+  added next year cannot widen a profile. The test suite proves it by calling `core`-only
+  handlers directly with an `agent` context and asserting nothing reaches the wire.
+- **`agent` profile** — append-only. It can create tasks, comments, chat messages, checklist
+  items and time logs, but cannot alter or delete anything that already exists. Attaching a tag,
+  setting a custom field and adding a dependency are all excluded because they mutate an
+  existing task; creating a webhook is excluded because append-only and safe are not the same
+  property.
+- **Name-first addressing** — `find(scope: "Cavalry/Findings", assignee: "me", due: "overdue")`.
+  The workspace index costs `3 + S` API calls, is cached for five minutes, and serves list
+  statuses for free.
+- **`CLICKUP_ATTACH_ROOT`** — confines `attach` to one directory, checked against the file's
+  real path after resolving `..` and every symlink. Required for `attach` under `agent`.
+- **`whoami`** now reports the running version and build stamp, restoring what 3.x's
+  `server_info` did: an MCP host holds the process it spawned, so "the fix didn't work" is
+  usually an old process still running.
+- `GET /health` reports the active profile, the tool count that profile actually exposes, and
+  the attachment root.
+
+### Fixed
+
+Six classes of confidently-wrong answer, all found by reading state back from the live API
+after a write — none would have been caught by a mock, which cheerfully returns 200:
+
+- **`move_to` reported success while the task never moved.** ClickUp cannot move tasks between
+  lists: three endpoints return 200 and no-op. Now verified by read-back, and it fails loudly.
+- **`find` reported a page size as a total** — "100 matches" after one page of many. Now
+  `100+ matches` with an explicit coverage warning.
+- **A stale cached count in a delete confirmation** — the one number in an irreversible prompt
+  that must not be a guess. Now a live read.
+- **Status validation against space defaults falsely rejected valid statuses.** Lists override
+  their space constantly; statuses now come per-list from the folder index.
+- **Ambiguity was reported as absence** — "Findings" matching four lists came back as "matches
+  nothing". Ambiguity is now an error naming all four.
+- **Dependency direction was inverted.** ClickUp returns `type: 1` for both directions; the
+  direction lives in `task_id` vs `depends_on`.
+
+### Security
+
+- **`attach` could read any local file under the `agent` profile.** Absolute paths, `..`
+  traversal and symlinks all resolved, so `../.env` yielded the ClickUp API token — which grants
+  full write access regardless of profile, making every other restriction decorative. The root
+  cause is worth stating plainly: the write policy inspects outbound URLs, and a local file read
+  has no URL, so the guarantee never covered that resource at all. Fixed with a second chokepoint
+  (`core/localfile.ts`) that every local read passes through.
+- **Encoded path separators could smuggle a denied path past the append allowlist.**
+  `POST /list/1%2Ftask%2Fvictim/task` reads as three segments locally and possibly five at the
+  origin. Now refused; deny rules are also tested against the decoded form. A follow-up round
+  found the filter peeled only one layer — `%252F` passed where `%2F` was caught — so it now
+  decodes to a fixpoint and fails closed on malformed encoding.
+- **`parseDate` accepted any number as an epoch**, so `-5` became a 1969 due date and an
+  over-long value became the year 5138, both rendering as success. Bounded to 2000–2100.
+
+### Performance
+
+Measured against 3.4.1 through a real `tools/list`:
+
+| | 3.4.1 | 4.3.0 |
+|---|---|---|
+| Tool schemas, paid on every request | 88 tools, ~18,600 tok | 18 tools, 4,748 tok (`full`) · 2,236 (`read`) |
+| One 100-task list | 4,063 tok | 736 tok |
+| Round trips to list a named list | 4 | 1 |
+
+The 100-task figure compares against 3.x's already-shaped default, not the raw API. Measuring
+against raw would show −98%, but that is 3.x's opt-in `detail:"full"` mode, not what it returns.
+
 ## 3.4.1 — 2026-08-15
 
 Fixes from a red-team round against the 3.4.0 auth layer. The round found no
