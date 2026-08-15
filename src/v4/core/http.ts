@@ -113,6 +113,58 @@ export class ClickUpHttp {
     return this.request<T>('DELETE', path, undefined, subject, version);
   }
 
+  /**
+   * Multipart upload. ClickUp's attachment endpoint is multipart-only — it answers JSON with
+   * `ATTCH_045` and a URL in a multipart field with `ATTCH_039` — so this cannot go through
+   * `request()`, which always sends JSON.
+   *
+   * Content-Type is deliberately not set: fetch generates the multipart boundary itself, and
+   * setting it by hand produces a body the server cannot parse.
+   */
+  async upload<T>(path: string, form: FormData, subject?: string): Promise<T> {
+    const ctx: RequestContext = { method: 'POST', path, subject };
+    const url = `${this.baseUrl}/v2${path.startsWith('/') ? path : `/${path}`}`;
+    await this.awaitBudget();
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs * 3);
+    try {
+      const res = await this.fetchImpl(url, {
+        method: 'POST',
+        headers: { Authorization: this.token },
+        body: form,
+        signal: controller.signal,
+      });
+      this.absorbHeaders(res.headers);
+      this.requestCount++;
+      const text = await res.text();
+      let parsed: unknown = text;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        /* leave as text */
+      }
+      if (!res.ok) throw fromApiError(res.status, parsed, ctx);
+      return parsed as T;
+    } catch (err) {
+      if (err instanceof ClickUpToolError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new ClickUpToolError({
+          what: 'The upload timed out.',
+          fix: 'Large files are slow; ClickUp caps attachments at 25MB. Try a smaller file.',
+          origin: `POST ${path}`,
+        });
+      }
+      throw new ClickUpToolError({
+        what: `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
+        fix: 'Check the file exists and is readable, and that the host has network access.',
+        origin: `POST ${path}`,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async request<T>(
     method: string,
     path: string,

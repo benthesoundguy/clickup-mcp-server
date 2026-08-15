@@ -18,7 +18,7 @@ import {
   type ShapedTask,
 } from '../core/format.js';
 import { looksLikeTaskId } from '../core/resolve.js';
-import { rankCandidates } from '../core/text.js';
+import { decodeEntities, rankCandidates } from '../core/text.js';
 
 const PAGE_SIZE = 100;
 const DEFAULT_LIMIT = 50;
@@ -93,10 +93,20 @@ export const findTool: ToolDef = {
     detail: z.enum(['compact', 'full']).optional().describe('Default compact'),
     limit: z.number().optional().describe(`Max rows, default ${DEFAULT_LIMIT}, cap ${MAX_LIMIT}`),
     order_by: z.enum(['due_date', 'created', 'updated', 'priority']).optional(),
+    view: z
+      .string()
+      .optional()
+      .describe('Run a saved ClickUp View by name instead of building filters by hand'),
   },
   async handler(args, ctx) {
     const limit = Math.min(Math.max(Number(args.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
     const detail = (args.detail as 'compact' | 'full') ?? 'compact';
+
+    // A saved View already encodes its own filters, so it is a different query path rather
+    // than another filter. Mixing the two would silently drop whichever lost.
+    if (typeof args.view === 'string' && args.view.trim()) {
+      return runView(ctx, args.view.trim(), limit, detail, args);
+    }
     const params: Record<string, unknown> = {
       subtasks: args.subtasks === true ? true : undefined,
       include_closed: args.include_closed === true ? true : undefined,
@@ -242,6 +252,89 @@ export const findTool: ToolDef = {
     return body;
   },
 };
+
+/**
+ * Run a saved ClickUp View.
+ *
+ * Views are resolved by name across the workspace, then by space/list if not found there.
+ * A view carries its own filters, so combining it with status/assignee/due arguments would
+ * mean silently honouring one and dropping the other — that is refused instead.
+ */
+async function runView(
+  ctx: Ctx,
+  name: string,
+  limit: number,
+  detail: 'compact' | 'full',
+  args: Record<string, unknown>,
+): Promise<string> {
+  const conflicting = ['status', 'assignee', 'tags', 'due', 'text'].filter(
+    (k) => args[k] !== undefined && args[k] !== '' && (!Array.isArray(args[k]) || (args[k] as unknown[]).length),
+  );
+  if (conflicting.length) {
+    throw new ClickUpToolError({
+      what: `A view already defines its own filters, so ${conflicting.join('/')} cannot be combined with view.`,
+      fix: 'Either run the view on its own, or drop `view` and filter explicitly. Honouring one and ignoring the other would give a result that looks filtered but is not.',
+    });
+  }
+
+  const view = await resolveView(ctx, name);
+  const res = await ctx.http.get<TaskPage>(`/view/${view.id}/task${qs({ page: 0 })}`, `view ${view.name}`);
+  const tasks = res.tasks ?? [];
+  const shown = tasks.slice(0, limit);
+  const exhausted = res.last_page === true || tasks.length < PAGE_SIZE;
+  const count = exhausted ? `${tasks.length} match${tasks.length === 1 ? '' : 'es'}` : `${tasks.length}+ matches`;
+  return renderTaskTable(
+    shown.map((t) => shapeTask(t, detail)),
+    { header: `view "${view.name}" — ${count}${shown.length < tasks.length ? `, showing ${shown.length}` : ''}` },
+  );
+}
+
+interface RawView {
+  id?: string;
+  name?: string;
+}
+
+async function resolveView(ctx: Ctx, name: string): Promise<{ id: string; name: string }> {
+  const seen = new Map<string, string>();
+  const collect = (views: RawView[] | undefined) => {
+    for (const v of views ?? []) if (v.id && v.name) seen.set(v.id, decodeEntities(v.name));
+  };
+
+  const ws = await ctx.http.get<{ views?: RawView[] }>(
+    `/team/${ctx.workspaceId}/view`,
+    'the workspace views',
+  );
+  collect(ws.views);
+
+  const lower = name.toLowerCase();
+  const hit = [...seen.entries()].filter(([, n]) => n.toLowerCase() === lower);
+  if (hit.length === 1) return { id: hit[0][0], name: hit[0][1] };
+  if (hit.length > 1) throw ambiguousView(name, hit.map(([id, n]) => `${n} (${id})`));
+
+  // Not a workspace view — look inside spaces and lists, which is where most views live.
+  const idx = await ctx.resolver.index();
+  for (const sp of idx.spaces) {
+    const r = await ctx.http.get<{ views?: RawView[] }>(`/space/${sp.id}/view`, `space ${sp.name}`);
+    collect(r.views);
+  }
+  const hit2 = [...seen.entries()].filter(([, n]) => n.toLowerCase() === lower);
+  if (hit2.length === 1) return { id: hit2[0][0], name: hit2[0][1] };
+  if (hit2.length > 1) throw ambiguousView(name, hit2.map(([id, n]) => `${n} (${id})`));
+
+  const partial = [...seen.entries()].filter(([, n]) => n.toLowerCase().includes(lower));
+  if (partial.length === 1) return { id: partial[0][0], name: partial[0][1] };
+  if (partial.length > 1) throw ambiguousView(name, partial.map(([id, n]) => `${n} (${id})`));
+
+  throw unresolved('view', name, rankCandidates(name, [...seen.values()]));
+}
+
+function ambiguousView(name: string, candidates: string[]): ClickUpToolError {
+  return new ClickUpToolError({
+    what: `${JSON.stringify(name)} matches ${candidates.length} views.`,
+    fix: 'Pass the view ID instead.',
+    candidates,
+  });
+}
 
 async function resolveScope(
   ctx: Ctx,
@@ -525,6 +618,53 @@ export const createTool: ToolDef = {
   },
 };
 
+interface Relations {
+  tagsAdd: string[];
+  tagsRemove: string[];
+  waitsOn: string[];
+  blocks: string[];
+  unblock: string[];
+  linkTo: string[];
+  unlink: string[];
+}
+
+/**
+ * Tags, dependencies and links are each their own endpoint rather than fields on the task, so
+ * they are applied after the main PUT.
+ *
+ * Dependency direction is expressed by which key is sent: `depends_on` means *this* task waits,
+ * `dependency_of` means the other one does. Getting that backwards silently inverts a project
+ * plan, so the two are kept as separately named arguments rather than one `dependencies` list.
+ */
+async function applyRelations(ctx: Ctx, taskId: string, rel: Relations): Promise<void> {
+  const t = encodeURIComponent(taskId);
+
+  for (const tag of rel.tagsAdd) {
+    await ctx.http.post(`/task/${t}/tag/${encodeURIComponent(tag)}`, {}, `task ${taskId}`);
+  }
+  for (const tag of rel.tagsRemove) {
+    await ctx.http.delete(`/task/${t}/tag/${encodeURIComponent(tag)}`, `task ${taskId}`);
+  }
+  for (const other of rel.waitsOn) {
+    await ctx.http.post(`/task/${t}/dependency`, { depends_on: other }, `task ${taskId}`);
+  }
+  for (const other of rel.blocks) {
+    await ctx.http.post(`/task/${t}/dependency`, { dependency_of: other }, `task ${taskId}`);
+  }
+  for (const other of rel.unblock) {
+    await ctx.http.delete(
+      `/task/${t}/dependency${qs({ depends_on: other, dependency_of: other })}`,
+      `task ${taskId}`,
+    );
+  }
+  for (const other of rel.linkTo) {
+    await ctx.http.post(`/task/${t}/link/${encodeURIComponent(other)}`, {}, `task ${taskId}`);
+  }
+  for (const other of rel.unlink) {
+    await ctx.http.delete(`/task/${t}/link/${encodeURIComponent(other)}`, `task ${taskId}`);
+  }
+}
+
 export const updateTool: ToolDef = {
   name: 'update',
   description:
@@ -534,6 +674,16 @@ export const updateTool: ToolDef = {
   schema: {
     ids: z.array(z.string()).describe('Task IDs (from `find`)'),
     ...taskSpecShape,
+    tags_add: z.array(z.string()).optional().describe('Tag names to attach'),
+    tags_remove: z.array(z.string()).optional().describe('Tag names to detach'),
+    waits_on: z
+      .array(z.string())
+      .optional()
+      .describe('Task IDs this task is blocked by (it cannot start until they finish)'),
+    blocks: z.array(z.string()).optional().describe('Task IDs that are blocked by this task'),
+    unblock: z.array(z.string()).optional().describe('Task IDs to remove a dependency with'),
+    link_to: z.array(z.string()).optional().describe('Task IDs to link (a reference, not a blocker)'),
+    unlink: z.array(z.string()).optional().describe('Task IDs to unlink'),
     move_to: z
       .string()
       .optional()
@@ -589,10 +739,21 @@ export const updateTool: ToolDef = {
       body.assignees = { ...existing, rem };
     }
 
-    if (!Object.keys(body).length && !destListId) {
+    const rel = {
+      tagsAdd: (args.tags_add as string[] | undefined) ?? [],
+      tagsRemove: (args.tags_remove as string[] | undefined) ?? [],
+      waitsOn: (args.waits_on as string[] | undefined) ?? [],
+      blocks: (args.blocks as string[] | undefined) ?? [],
+      unblock: (args.unblock as string[] | undefined) ?? [],
+      linkTo: (args.link_to as string[] | undefined) ?? [],
+      unlink: (args.unlink as string[] | undefined) ?? [],
+    };
+    const hasRel = Object.values(rel).some((a) => a.length);
+
+    if (!Object.keys(body).length && !destListId && !hasRel) {
       throw new ClickUpToolError({
         what: 'Nothing to change.',
-        fix: 'Pass at least one of: status, assignees, due, priority, name, description, move_to, delete.',
+        fix: 'Pass at least one of: status, assignees, due, priority, name, description, tags_add/remove, waits_on, blocks, link_to, move_to, delete.',
       });
     }
 
@@ -628,6 +789,15 @@ export const updateTool: ToolDef = {
             continue;
           }
           updated.push(shapeTask(landed, 'compact'));
+          continue;
+        }
+        if (hasRel) {
+          await applyRelations(ctx, id, rel);
+          // Tags and dependencies are written after the PUT, so the PUT's response predates
+          // them. Rendering it would show the tag you just removed still attached — which
+          // reads as a failed write. Re-read so the row shown is the row that now exists.
+          const fresh = await ctx.http.get<RawTask>(`/task/${encodeURIComponent(id)}`, `task ${id}`);
+          updated.push(shapeTask(fresh, 'compact'));
           continue;
         }
         updated.push(shapeTask(raw, 'compact'));

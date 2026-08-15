@@ -34,6 +34,11 @@ export interface ShapedTask {
   dateCreated?: string;
   dateUpdated?: string;
   closed?: boolean;
+  attachments?: string[];
+  checklists?: { name: string; done: number; total: number }[];
+  blocking?: string[];
+  waitingOn?: string[];
+  linked?: string[];
 }
 
 export type Detail = 'compact' | 'full';
@@ -79,6 +84,36 @@ export function shapeTask(raw: RawTask, detail: Detail = 'compact'): ShapedTask 
       .filter((f) => f.value !== undefined && f.value !== null && f.value !== '')
       .map((f) => ({ name: f.name, value: renderCustomFieldValue(f) }));
     if (cf.length) out.customFields = cf;
+
+    // These four live on the task object, which is the only place some of them exist at all —
+    // GET /task/{id}/attachment is 405, so this is how attachments are ever seen.
+    const att = (raw.attachments ?? []).map((a) => decodeEntities(a.title ?? a.id ?? ''));
+    if (att.length) out.attachments = att.filter(Boolean);
+
+    const cl = (raw.checklists ?? []).map((c) => ({
+      name: decodeEntities(c.name ?? ''),
+      done: c.resolved ?? (c.items ?? []).filter((i) => i.resolved).length,
+      total: c.items?.length ?? (c.resolved ?? 0) + (c.unresolved ?? 0),
+    }));
+    if (cl.length) out.checklists = cl;
+
+    // Dependency direction is encoded in task_id vs depends_on, NOT in `type` — verified
+    // 2026-08-15: `type` came back as 1 for both {depends_on:X} and {dependency_of:X}, so
+    // keying off it labels every edge "blocking" and reports the reverse of the truth for
+    // half of them. The record reads "task_id waits on depends_on".
+    const blocking: string[] = [];
+    const waiting: string[] = [];
+    for (const d of raw.dependencies ?? []) {
+      if (d.task_id === raw.id && d.depends_on) waiting.push(d.depends_on);
+      else if (d.depends_on === raw.id && d.task_id) blocking.push(d.task_id);
+    }
+    if (blocking.length) out.blocking = blocking;
+    if (waiting.length) out.waitingOn = waiting;
+
+    const linked = (raw.linked_tasks ?? [])
+      .map((l) => (l.task_id === raw.id ? l.link_id : l.task_id))
+      .filter((x): x is string => Boolean(x));
+    if (linked.length) out.linked = linked;
   }
 
   return out;
@@ -154,6 +189,14 @@ export function renderTaskDetail(t: ShapedTask, extras: Record<string, string> =
     ['created', t.dateCreated],
     ['updated', t.dateUpdated],
     ['url', t.url],
+    ['attachments', t.attachments?.join(', ')],
+    [
+      'checklists',
+      t.checklists?.map((c) => `${c.name} ${c.done}/${c.total}`).join(', '),
+    ],
+    ['blocking', t.blocking?.join(', ')],
+    ['waiting on', t.waitingOn?.join(', ')],
+    ['linked', t.linked?.join(', ')],
   ];
 
   const lines = rows
@@ -277,4 +320,13 @@ export interface RawTask {
   list?: { id: string; name?: string };
   space?: { id?: string; name?: string };
   custom_fields?: RawCustomField[];
+  attachments?: { id?: string; title?: string }[];
+  checklists?: {
+    name?: string;
+    resolved?: number;
+    unresolved?: number;
+    items?: { resolved?: boolean }[];
+  }[];
+  dependencies?: { task_id?: string; depends_on?: string; type?: number }[];
+  linked_tasks?: { task_id?: string; link_id?: string }[];
 }

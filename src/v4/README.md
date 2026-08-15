@@ -1,7 +1,7 @@
 # ClickUp MCP v4
 
-12 tools that take human names, on the branch `v4-rebuild`. v3 (88 tools) still lives in
-`src/` and is untouched.
+18 tools that take human names, on the branch `v4-rebuild`. Feature-complete against v3's 88.
+v3 still lives in `src/` and is untouched.
 
 ## Why
 
@@ -10,10 +10,14 @@ v3 mirrors the ClickUp REST API one endpoint per tool. Measured against the live
 
 | | v3.4.1 | v4.0.0 | |
 |---|---|---|---|
-| Tool schemas, paid on **every** request | 66,972 B ≈ **18,603 tok** | 10,120 B ≈ **2,811 tok** | −84.9% |
+| Tool schemas, paid on **every** request | 66,972 B ≈ **18,603 tok** | 17,060 B ≈ **4,739 tok** | −74.5% |
 | One 100-task list | 14,625 B ≈ **4,063 tok** | 2,683 B ≈ **745 tok** | −81.7% |
 | Round trips to list a named list | **4** | **1** | |
-| Tools | 88 | 12 | |
+| Tools | 88 | 18 | |
+
+Coverage is now equivalent: all 88 v3 tools are either replaced by one of the 18 or folded in
+as a parameter. Closing that gap cost **1,900 tokens** — v3 spends **7,609** on the same
+functionality.
 
 Note the response baseline: **v3 already shapes `tasks_list` by default** (`shapeTaskList()`,
 `detail: 'lean'`). Measuring against the *raw* API would show −98%, but that is v3's opt-in
@@ -66,6 +70,20 @@ So v4:
 | `meta` | **What values are legal here** — statuses, tags, members, priorities. |
 | `docs` | Search or read ClickUp Docs. |
 | `whoami` | Identity, rate budget, cache state. |
+| `goals` | Goals and key results, by name. |
+| `chat` | Read/post in ClickUp Chat channels. |
+| `webhooks` | List, create, delete webhooks. |
+| `attach` | Upload a file to a task. |
+| `checklist` | Checklists and items inside a task. |
+| `people` | Members, guests, seats, groups. Mutations need `confirm: true`. |
+
+Folded in as parameters rather than tools: saved **views** (`find(view:)`), **dependencies**
+and **links** (`update(waits_on/blocks/link_to)`), **tag assignment**
+(`update(tags_add/tags_remove)`), and **list templates** (`lists(from_template:)`). Eleven v3
+tools for 236 tokens.
+
+`people` mutations consume billable seats and change real access, so every one of them
+reports current seat usage and refuses without `confirm: true`.
 
 `meta` exists to kill the guess-a-status failure: ask what a list accepts instead of
 discovering it via an empty result.
@@ -118,7 +136,7 @@ and an invalid JWT never vetoes a valid bearer token.
 
 ## Tests
 
-`npm test` — 186 tests, of which 96 are v3's. The v4 suite is offline: a stubbed fetch and a
+`npm test` — 218 tests, of which 96 are v3's. The v4 suite is offline: a stubbed fetch and a
 stubbed clock, so it never spends the real rate budget.
 
 - `v4-core.test.mjs` — resolver, errors, dates, text, formatting, rate governor
@@ -126,8 +144,12 @@ stubbed clock, so it never spends the real rate budget.
   real lying behaviour
 - `v4-budget.test.mjs` — **fails the build if the token budgets regress**
 - `v4-http.test.mjs` — transport and auth end to end
+- `v4-extended.test.mjs` — the long tail, including every membership-write confirmation gate
 
-## Not covered
+## Verification status
 
-Deliberately out of scope, and still served by v3: `users_*` / `guests_*` (they mutate real
-membership and billing seats), goals, portfolios, chat channels, webhooks, templates, views.
+Everything except membership *writes* has been exercised against the live API. The
+`people` write paths (invite / remove / set_admin / guest_*) are covered by stub tests only:
+running them for real consumes billable seats and changes a person's access, which is not a
+thing to do for a smoke test. They are the one part of this server that has never executed
+against real ClickUp.

@@ -9,6 +9,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import * as http from 'node:http';
+import { allTools } from '../build/v4/server.js';
 
 const AUTH_TOKEN = 'test-token-that-is-long-enough-32ch';
 let clickupStub;
@@ -106,7 +107,8 @@ describe('v4 HTTP transport', () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.ok, true);
-    assert.equal(body.tools, 12);
+    // Assert against the registry, not a literal — otherwise every new tool breaks this.
+    assert.equal(body.tools, allTools.length);
     const raw = JSON.stringify(body);
     assert.ok(!raw.includes(AUTH_TOKEN), 'health must never echo the auth token');
     assert.ok(!raw.includes('pk_stub'), 'health must never echo the ClickUp token');

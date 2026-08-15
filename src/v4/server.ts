@@ -15,10 +15,16 @@ import type { Ctx, ToolDef } from './tools/registry.js';
 import { taskTools } from './tools/tasks.js';
 import { structureTools } from './tools/structure.js';
 import { extraTools } from './tools/extras.js';
+import { extendedTools } from './tools/extended.js';
 
-export const SERVER_VERSION = '4.0.0';
+export const SERVER_VERSION = '4.1.0';
 
-export const allTools: ToolDef[] = [...taskTools, ...structureTools, ...extraTools];
+export const allTools: ToolDef[] = [
+  ...taskTools,
+  ...structureTools,
+  ...extraTools,
+  ...extendedTools,
+];
 
 /** Responses above this are truncated; Claude Code caps tool results at 25k tokens. */
 const MAX_RESPONSE_CHARS = 60_000;

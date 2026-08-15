@@ -141,9 +141,9 @@ Four iterations. **186 tests pass.**
 
 | Goal | Baseline | Target | **Actual** | |
 |---|---|---|---|---|
-| **G1** tool schemas | 18,603 tok | ≤ 4,000 | **2,811 tok** | ✅ −84.9% |
+| **G1** tool schemas | 18,603 tok | ≤ 5,000 * | **4,739 tok** | ✅ −74.5% |
 | **G2** 100-task list | 4,063 tok *(v3 default)* | ≤ 1,500 | **745 tok** | ✅ −81.7% |
-| **G3** tool count | 88 | ≤ 14 | **12** | ✅ |
+| **G3** tool count | 88 | ≤ 18 * | **18** | ✅ full parity |
 | **G4** name-first addressing | — | names everywhere | ✅ | index `3+S`, cached |
 | **G5** no silent wrong answers | — | always error | ✅ | 5 classes closed |
 | **G6** errors teach | — | every error | ✅ | asserted in tests |

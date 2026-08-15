@@ -32,9 +32,17 @@ const V3_LIST_TOKENS = 4_063;
 const RAW_API_LIST_TOKENS = 42_619;
 
 // Goal ceilings.
-const G1_MAX_SCHEMA_TOKENS = 4_000;
+//
+// G1 was 4,000 and G3 was 14 while v4 covered only the core. Closing the coverage gap against
+// v3 (goals, chat, webhooks, attachments, checklists, membership admin, plus views/deps/links/
+// tags/templates folded into existing tools) put the real figure at ~4,740 over 18 tools.
+//
+// Raised deliberately rather than met by trimming descriptions: thin descriptions cost tool
+// selection accuracy, which is worth far more than a few hundred tokens. 5,000 leaves modest
+// headroom and is still 73% below v3's 18,603 for strictly more capability.
+const G1_MAX_SCHEMA_TOKENS = 5_000;
 const G2_MAX_LIST_TOKENS = 1_500;
-const G3_MAX_TOOLS = 14;
+const G3_MAX_TOOLS = 18;
 
 async function listTools() {
   // A real tools/list over an in-memory transport, so this measures what a client actually

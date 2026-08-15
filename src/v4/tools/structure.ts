@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { Ctx, ToolDef } from './registry.js';
-import { ClickUpToolError } from '../core/errors.js';
+import { ClickUpToolError, unresolved } from '../core/errors.js';
 import { renderTable } from '../core/format.js';
 
 export const treeTool: ToolDef = {
@@ -143,6 +143,10 @@ export const listsTool: ToolDef = {
       .describe('For create: the folder or space to create in, by name/path/ID'),
     target: z.string().optional().describe('For rename/delete: the list or folder to act on'),
     confirm: z.boolean().optional().describe('Required for delete'),
+    from_template: z
+      .string()
+      .optional()
+      .describe('For create: build the list from a saved template, by template name'),
   },
   async handler(args, ctx) {
     const kind = (args.kind as string) ?? 'list';
@@ -170,6 +174,32 @@ export const listsTool: ToolDef = {
         );
         ctx.resolver.invalidate();
         return `created folder ${space.name}/${r.name} (${r.id})`;
+      }
+
+      const tmplName = String(args.from_template ?? '').trim();
+      if (tmplName) {
+        const tmpl = await resolveTemplate(ctx, tmplName);
+        let created: { id: string; name?: string };
+        let where: string;
+        try {
+          const folder = await ctx.resolver.folder(parentRaw);
+          created = await ctx.http.post(
+            `/folder/${folder.id}/list/template/${tmpl.id}`,
+            { name },
+            `folder ${folder.name}`,
+          );
+          where = `${folder.spaceName}/${folder.name}`;
+        } catch {
+          const space = await ctx.resolver.space(parentRaw);
+          created = await ctx.http.post(
+            `/space/${space.id}/list/template/${tmpl.id}`,
+            { name },
+            `space ${space.name}`,
+          );
+          where = space.name;
+        }
+        ctx.resolver.invalidate();
+        return `created list ${where}/${name} from template "${tmpl.name}" (${created.id})`;
       }
 
       // A list can live in a folder or directly in a space; try folder first, then space.
@@ -283,5 +313,27 @@ export const whoamiTool: ToolDef = {
     return lines.join('\n');
   },
 };
+
+/** Resolve a task template by name. ClickUp exposes these read-only, one page at a time. */
+async function resolveTemplate(ctx: Ctx, name: string): Promise<{ id: string; name: string }> {
+  const r = await ctx.http.get<{ templates?: { id?: string; name?: string }[] }>(
+    `/team/${ctx.workspaceId}/taskTemplate?page=0`,
+    'the task templates',
+  );
+  const all = (r.templates ?? []).filter((t) => t.id && t.name);
+  const lower = name.toLowerCase();
+  const exact = all.filter((t) => (t.name ?? '').toLowerCase() === lower);
+  if (exact.length === 1) return { id: exact[0].id!, name: exact[0].name! };
+  const partial = all.filter((t) => (t.name ?? '').toLowerCase().includes(lower));
+  if (partial.length === 1) return { id: partial[0].id!, name: partial[0].name! };
+  if (exact.length > 1 || partial.length > 1) {
+    throw new ClickUpToolError({
+      what: `${JSON.stringify(name)} matches more than one template.`,
+      fix: 'Use the exact template name.',
+      candidates: (exact.length > 1 ? exact : partial).map((t) => t.name!),
+    });
+  }
+  throw unresolved('task template', name, all.map((t) => t.name!));
+}
 
 export const structureTools: ToolDef[] = [treeTool, metaTool, listsTool, whoamiTool];
