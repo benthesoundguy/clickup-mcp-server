@@ -1,5 +1,73 @@
 # Changelog
 
+## 3.2.0 — 2026-08-14
+
+Fixes from round 3 of adversarial testing. Round 3 verified 5/5 of the 3.0.x
+fixes and 6/6 of the 3.1.0 fixes still working, then found these.
+
+### Fixed
+- **Goal key results could be created but never changed.** `update` and
+  `delete` 404'd on ids that provably existed: those routes live at
+  `/key_result/{id}`, not nested under the goal — even though `create` *is*
+  nested. Also exposed `steps_current` and `note`, so progress can be recorded.
+- **Two of three attachment actions were dead.** There is no
+  `GET /task/{id}/attachment` route (405) — `list` now reads attachments off
+  the task object. Attach-by-URL sent JSON to a multipart-only endpoint
+  (`ATTCH_045`), and a URL inside a multipart field is refused (`ATTCH_039`),
+  so the URL is now fetched server-side and the bytes uploaded (25MB cap).
+- **`labels` custom fields were uncreatable.** `drop_down` options want
+  `{name}`, `labels` want `{label}` (`FIELD_146`). Now keyed per type.
+- **Stringified numbers made documented inputs unreachable.** MCP clients
+  routinely send numbers as strings on union-typed fields, and
+  `Date.parse("1786745000000")` is `NaN` — so a Unix-ms date was rejected at
+  top level while the identical value worked inside `tasks_create_bulk`.
+  `coerceDate` now accepts epoch strings (seconds or ms). Same class on
+  `views.type`, where zod rejected `"2"` before the resolver could map it;
+  unknown type strings now error with the list of valid ones.
+- **Status rename/delete silently reassigned tasks.** ClickUp moves every task
+  in that status to the list's default open status with no warning. Both
+  actions now count the affected tasks first and return an explicit `warning`
+  plus `tasks_reassigned`.
+- **Blank error bodies.** ClickUp's v3 API reports errors under `message`,
+  which the extraction chain never read — every v3 error surfaced as a bare
+  `error (400) on POST /x:`. Added `message`, plus a per-status fallback so an
+  empty body can never produce an unactionable error again.
+
+## 3.1.0 — 2026-08-14
+
+Fixes from the round-1/round-2 defect table (45 rows), plus a diagnostic for a
+recurring operational problem.
+
+### Added
+- **`server_info`** — reports the running build's timestamp. MCP hosts spawn
+  their own server process at session start and hold it, so a rebuild never
+  reaches an already-running session. Version skew had caused several phantom
+  "the fix didn't work" reports; this makes it visible. Build stamp also
+  appears on `/healthz`.
+- `statuses` gained `replace_all`, `status_type`, and `new_name`.
+
+### Fixed
+- **`statuses` rewritten.** Every action was a read-modify-write with no
+  precondition check: `delete` on a name that wasn't present removed nothing
+  and reported success; name matching was case-sensitive while ClickUp stores
+  names lower-cased; and `reorder` was a destructive replace-all that deleted
+  any status omitted from the array. `reorder` is now a true permutation-only
+  reorder, `replace_all` is the honestly-named destructive path, `create`
+  supports status types and rejects duplicates, and `delete` refuses to remove
+  the list's only `open` status.
+- `tasks_move_bulk` reported "Moved 2 of 2 tasks" when the same task was listed
+  twice; duplicates are now rejected up front.
+- `time_entry_update` / `_delete` reported success for entries that never
+  existed (ClickUp answers `200 {"data":null}`); now surfaced as not-found.
+- `project_intelligence health` inlined every task object, burying its own
+  aggregates on a 150-task list. Capped at 25 with
+  `tasks_included`/`tasks_truncated`; aggregates still cover everything.
+- `docs pages_update` returned a bare `{}` on the one operation where a mistake
+  is unrecoverable; now echoes page id, mode, and resulting content length.
+- `tasks_update` gained `parent`, so re-parenting is possible at all.
+- `tasks_list` `page` is now `int().min(0)` (was 500-ing on `-1`).
+- `tags` `name` / `tag_name` descriptions disambiguated.
+
 ## 3.0.0 — 2026-07-31
 
 Full renovation. Every registered operation now maps to a live, verified

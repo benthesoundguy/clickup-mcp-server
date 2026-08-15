@@ -6,13 +6,16 @@
   <a href="https://github.com/modelcontextprotocol/typescript-sdk"><img src="https://img.shields.io/badge/MCP%20SDK-1.x-orange" alt="MCP SDK"></a>
 </p>
 
-A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **85 tools covering 144 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation) and is exercised by a 97-step live test suite.**
+A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **88 tools covering 148 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation), and is exercised by 68 unit tests plus a 108-step live test suite.**
 
-This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). See [CHANGELOG.md](CHANGELOG.md) for everything that changed in 3.0.0.
+This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). Current version **3.2.0** — see [CHANGELOG.md](CHANGELOG.md) for the full history.
+
+Much of what's here was found by pointing an adversarial agent at a throwaway workspace and telling it to break things. Three rounds of that produced ~50 defects; the ones that were ours are fixed, and the ones that are ClickUp's are documented below rather than hidden.
 
 ## Why this fork
 
 - **Verified surface** — every endpoint was probed against the real API; ~30 fabricated or dead operations from earlier versions were removed or rebuilt. What's registered, works.
+- **No silent wrong answers** — writes that reported success while doing nothing (or something else) were the single most common defect class found. Destructive and ambiguous operations now verify by readback and say what actually happened.
 - **LLM-shaped responses** — task lists return a lean field set by default (roughly 5× smaller than raw API payloads), with `detail:"full"` and `fields:[...]` opt-ins. Compact JSON everywhere.
 - **Rate-limit aware** — automatic retry with backoff on 429s honoring `Retry-After`; serial bulk writes are paced. ClickUp allows ~100 requests/minute per token on most plans.
 - **Project intelligence** — 8 analysis reports (health score, bottlenecks, velocity, dependency graph, sprint readiness, workload, risk, time) computed locally over *complete* task data, with custom-status-aware classification and an explicit flag when data was truncated.
@@ -65,14 +68,14 @@ in the path: `/mcp/<token>` — the form claude.ai's connector UI needs).
 See [deploy/DEPLOY.md](deploy/DEPLOY.md) for the full recipe: VPS setup script,
 hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
 
-## Tools (85 registered / 144 operations)
+## Tools (88 registered / 148 operations)
 
 ### Single-operation tools
 
 | Domain | Tools |
 |---|---|
 | **Workspaces** | `workspaces_list`, `workspaces_seats_get` |
-| **Tasks** | `tasks_list`, `tasks_get`, `tasks_create`, `tasks_update`, `tasks_delete`, `tasks_link`, `tasks_unlink`, `tasks_members_list`, `tasks_create_bulk`, `tasks_update_bulk` |
+| **Tasks** | `tasks_list`, `tasks_get`, `tasks_create`, `tasks_update`, `tasks_delete`, `tasks_move`, `tasks_move_bulk`, `tasks_link`, `tasks_unlink`, `tasks_members_list`, `tasks_create_bulk`, `tasks_update_bulk` |
 | **Lists** | `lists_search`, `lists_create`, `lists_get`, `lists_update`, `lists_delete`, `lists_create_in_space`, `lists_create_from_template_in_folder`, `lists_create_from_template_in_space`, `lists_members_list`, `lists_list_in_space` |
 | **Folders** | `folders_create`, `folders_update`, `folders_delete` |
 | **Spaces** | `spaces` |
@@ -83,7 +86,7 @@ hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
 | **Guests** | `guests_invite`, `guests_get`, `guests_update`, `guests_remove`, `guests_attach`, `guests_detach` |
 | **Users** | `users_list`, `users_invite`, `users_update`, `users_remove` |
 | **Tags** | `tags_assign`, `tags_unassign` |
-| **Other** | `templates`, `reminders_create` |
+| **Other** | `templates`, `reminders_create`, `server_info` |
 
 ### Consolidated multi-action tools
 
@@ -94,7 +97,7 @@ hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
 | `project_intelligence` | health, bottlenecks, velocity, dependencies, sprint, workload, risk, time_report |
 | `docs` | get, list, create, search, pages_list, pages_create, pages_update |
 | `channels` | list, get, create, update, delete, dm |
-| `statuses` | list, create, update, delete, reorder |
+| `statuses` | list, create, update, delete, reorder, replace_all |
 | `webhooks` | list, create, update, delete, process |
 | `custom_fields_values` | get, set, remove, bulk_set |
 | `groups` | list, create, update, delete |
@@ -104,6 +107,10 @@ hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
 | `custom_fields` | list, create |
 | `channels_members` | list, followers |
 
+### Moving vs linking tasks
+
+`tasks_move` performs a **true home-list move** (ClickUp's v3 endpoint); `tasks_move_bulk` does up to 50 at once with rate-limit pacing — the "empty the inbox" operation. `tasks_link` / `tasks_unlink` are the *tasks-in-multiple-lists* feature: they add a task to an **additional** list without changing its home. Link-then-unlink is not a move, and `tasks_unlink` refuses to remove a task from its home list.
+
 ### Known API limitations (not bugs — the API genuinely lacks these)
 
 - **Reminders** are create-only; they cannot be listed, updated, or deleted.
@@ -111,6 +118,12 @@ hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
 - **Docs** cannot be renamed/deleted and pages cannot be deleted; edit content via `pages_update`.
 - **Users** cannot be listed directly; members are read from the workspace object.
 - Chat reactions accept colon-free emoji shortcodes (`+1`, `heart`), not names like `thumbsup` or literal emoji.
+- **Renaming or deleting a status reassigns its tasks.** ClickUp silently moves every task in that status to the list's default open status. The `statuses` tool counts them first and returns an explicit `warning` with `tasks_reassigned`, but the reassignment itself cannot be prevented.
+- Statuses have no per-status endpoint — the whole array is replaced on every change. `reorder` only reorders; `replace_all` is the destructive path and reports what it removed.
+- Status and tag names are stored lower-cased; all matching here is case-insensitive.
+- A task added to a second list via `tasks_link` does not appear in that list's `tasks_list` results.
+- Date custom fields require Unix milliseconds; `YYYY-MM-DD` is rejected by ClickUp for those (task `due_date`/`start_date` accept both, converted here).
+- Attachments have no list endpoint; `attachments list` reads them off the task object. Attach-by-URL is fetched server-side and uploaded, since ClickUp's endpoint is multipart-only (25MB cap).
 
 ## Project Intelligence
 
@@ -125,7 +138,7 @@ hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.
 - **risk** — per-task score combining overdue + blocked + stale + priority drivers
 - **time_report** — hours per person, per task, per day
 
-Reports fetch **all** task pages (up to 3,000 tasks) and classify statuses by the list's own status *types*, so custom workflows ("Shipped 🚀") are counted correctly. If the page cap is hit, the report says so (`data_complete: false`) instead of silently reporting partial numbers.
+Reports fetch **all** task pages (up to 3,000 tasks) and classify statuses by the list's own status *types*, so custom workflows ("Shipped 🚀") are counted correctly. If the page cap is hit, the report says so (`data_complete: false`) instead of silently reporting partial numbers. `health` caps its inline task dump at 25 (`tasks_included` / `tasks_truncated`) while the aggregates still cover every task.
 
 ## Webhook Receiver (optional)
 
@@ -147,10 +160,18 @@ git clone https://github.com/benthesoundguy/clickup-mcp-server
 cd clickup-mcp-server
 npm install
 npm run build
-npm test          # 51 unit tests (mocked HTTP — no token needed)
-npm run smoke     # 97-step live CRUD walk (needs CLICKUP_API_TOKEN; creates
+npm test          # 68 unit tests (mocked HTTP — no token needed)
+npm run smoke     # 108-step live CRUD walk (needs CLICKUP_API_TOKEN; creates
                   # and deletes its own sandbox in your workspace)
 ```
+
+### Debugging a fix that "didn't work"
+
+Call `server_info`. It reports the running build's timestamp. MCP hosts spawn
+their own server process at session start and hold it, so a rebuild does not
+reach an already-running session — if the build stamp predates your change,
+restart the host app. This accounted for several phantom bug reports before
+the tool existed.
 
 ## License
 
