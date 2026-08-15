@@ -40,7 +40,12 @@ const FOLDERS = {
       name: 'Cavalry',
       space: { id: '900100000001', name: 'Engineering' },
       lists: [
-        { id: '901400000001', name: 'Findings', task_count: 3 },
+        {
+          id: '901400000001',
+          name: 'Findings',
+          task_count: 3,
+          statuses: [{ status: 'Open' }, { status: 'blocked' }, { status: 'resolved' }],
+        },
         { id: '901400000002', name: 'Decisions', task_count: 1 },
       ],
     },
@@ -79,6 +84,7 @@ function makeFetch(overrides = {}) {
     const sl = /^\/space\/(\d+)\/list$/.exec(p);
     if (sl) return jsonResponse(200, SPACE_LISTS[sl[1]] ?? { lists: [] });
     if (p === '/user') return jsonResponse(200, { user: { id: 1, username: 'Ben', email: 'ben@example.com' } });
+    if (/^\/space\/\d+$/.test(p)) return jsonResponse(200, { statuses: [{ status: 'to do' }, { status: 'complete' }] });
     if (/^\/list\/\d+$/.test(p)) {
       return jsonResponse(200, { statuses: [{ status: 'to do' }, { status: 'in progress' }, { status: 'done' }] });
     }
@@ -565,5 +571,44 @@ describe('cache', () => {
     const c = new TtlCache(1000);
     await assert.rejects(() => c.remember('k', async () => { throw new Error('boom'); }));
     assert.equal(await c.remember('k', async () => 'ok'), 'ok');
+  });
+});
+
+// ------------------------------------------------------- status vocabulary (regression)
+
+describe('status vocabulary', () => {
+  test('lists that override their space are included', async () => {
+    // Real workspaces do this constantly: "blocked", "ready", "accepted — no action" exist on
+    // lists while the parent space declares only "to do"/"complete". Validating against space
+    // defaults alone rejected perfectly valid queries.
+    const { resolver } = makeResolver();
+    const known = await resolver.knownStatuses();
+    for (const s of ['Open', 'blocked', 'resolved']) {
+      assert.ok(known.includes(s), `list-level status "${s}" missing from the vocabulary`);
+    }
+  });
+
+  test('space defaults are included too, for folderless lists', async () => {
+    const { resolver } = makeResolver();
+    const known = await resolver.knownStatuses();
+    assert.ok(known.includes('to do'));
+    assert.ok(known.includes('complete'));
+  });
+
+  test('a folder list\'s statuses cost no extra API call', async () => {
+    const { resolver, fetchImpl } = makeResolver();
+    await resolver.index();
+    const before = fetchImpl.calls.length;
+    const st = await resolver.listStatuses('901400000001');
+    assert.deepEqual(st, ['Open', 'blocked', 'resolved']);
+    assert.equal(fetchImpl.calls.length, before, 'the folder index already carried these');
+  });
+
+  test('a folderless list still resolves its statuses, by fetching', async () => {
+    const { resolver, fetchImpl } = makeResolver();
+    await resolver.index();
+    const before = fetchImpl.calls.length;
+    await resolver.listStatuses('901400000005');
+    assert.ok(fetchImpl.calls.length > before, 'folderless lists are not in the index');
   });
 });

@@ -44,6 +44,8 @@ export interface ListRef {
   /** "Space/Folder/List" or "Space/List" — the canonical human address. */
   path: string;
   taskCount?: number;
+  /** Populated free from the folder index; absent for folderless lists. */
+  statuses?: string[];
 }
 export interface MemberRef {
   id: number;
@@ -152,6 +154,9 @@ export class Resolver {
           folderName: fname,
           path: `${sname}/${fname}/${lname}`,
           taskCount: l.task_count ?? undefined,
+          // GET /team/{id}/folder embeds each list's statuses. Capturing them here makes
+          // status validation free for every list that lives in a folder.
+          statuses: l.statuses?.map((x) => x.status),
         });
       }
     }
@@ -338,6 +343,12 @@ export class Resolver {
    * answers an invalid status with a 500 or a silently wrong result depending on the endpoint.
    */
   async listStatuses(listId: string): Promise<string[]> {
+    // The folder index already carries these for any list in a folder, so most lookups cost
+    // nothing. Folderless lists still need a fetch.
+    const idx = await this.index();
+    const known = idx.lists.find((l) => l.id === listId);
+    if (known?.statuses?.length) return known.statuses;
+
     return this.cache.remember(`statuses:${listId}`, async () => {
       const r = await this.http.get<RawListDetail>(`/list/${listId}`, `list ${listId}`);
       return (r.statuses ?? []).map((s) => s.status);
@@ -366,11 +377,20 @@ export class Resolver {
   async knownStatuses(): Promise<string[]> {
     return this.cache.remember('known-statuses', async () => {
       const idx = await this.index();
-      const sets = await Promise.all(idx.spaces.map((s) => this.spaceStatuses(s.id)));
       const seen = new Map<string, string>();
-      for (const set of sets) {
-        for (const s of set) if (!seen.has(s.toLowerCase())) seen.set(s.toLowerCase(), s);
-      }
+      const add = (s: string) => {
+        if (!seen.has(s.toLowerCase())) seen.set(s.toLowerCase(), s);
+      };
+
+      // Free: every folder-based list's own statuses, straight off the index. Lists routinely
+      // override their space ("blocked", "ready", "accepted — no action"), so validating
+      // against space defaults alone would reject perfectly valid queries.
+      for (const l of idx.lists) for (const s of l.statuses ?? []) add(s);
+
+      // Cheap and cached: space defaults, which cover folderless lists that don't override.
+      const sets = await Promise.all(idx.spaces.map((s) => this.spaceStatuses(s.id)));
+      for (const set of sets) for (const s of set) add(s);
+
       return [...seen.values()];
     });
   }
@@ -437,6 +457,7 @@ interface RawList {
   id: string;
   name: string;
   task_count?: number;
+  statuses?: { status: string }[];
 }
 interface RawFolder {
   id: string;

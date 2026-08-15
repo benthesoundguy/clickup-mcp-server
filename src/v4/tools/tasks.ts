@@ -158,12 +158,13 @@ export const findTool: ToolDef = {
           const hit = lower.get(w.trim().toLowerCase());
           if (!hit) {
             throw new ClickUpToolError({
-              what: `No space in this workspace defines a status called ${JSON.stringify(w)}.`,
+              what: `Nothing in this workspace uses a status called ${JSON.stringify(w)}.`,
               fix:
                 'Filtering on it would return zero tasks, which would look like "nothing is in ' +
-                'that state" rather than "no such state exists". Use one of the statuses below, ' +
-                'or scope the query to a specific list — a list may define custom statuses of ' +
-                'its own, which are validated exactly when you name the list.',
+                'that state" rather than "no such state exists". Use one of the statuses below. ' +
+                '(These are collected from every list in a folder plus each space\'s defaults; ' +
+                'a folderless list with custom statuses could define others — scope the query ' +
+                'to that list to validate against it exactly.)',
               candidates: known,
             });
           }
