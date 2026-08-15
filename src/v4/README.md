@@ -10,10 +10,14 @@ profile and enable whichever a given agent should have.
 
 | `MCP_PROFILE` | tools | schema | can |
 |---|---|---|---|
-| `read` | 11 | 2,228 tok | observe. **No write of any kind can leave the process.** |
-| `agent` | 13 | 2,808 tok | observe + **append**: create tasks, comments, chat messages, checklist items, time logs, attachments |
-| `core` | 16 | 4,121 tok | everything a normal user does — no membership or webhook administration |
-| `full` (default) | 18 | 4,739 tok | unrestricted |
+| `read` | 11 | 2,236 tok | observe. **No write of any kind can leave the process.** |
+| `agent` | 12 (13) | 2,635 tok | observe + **append**: create tasks, comments, chat messages, checklist items, time logs. Gains `attach` (13) only when `CLICKUP_ATTACH_ROOT` is set. |
+| `core` (default) | 16 | 4,129 tok | everything a normal user does — no membership or webhook administration |
+| `full` | 18 | 4,748 tok | unrestricted |
+
+The default is `core`, not `full`: `full` grants membership administration (billable seats, a
+real person's access) and webhooks (data sent off-site), and a default nobody changes has to be
+the safe one.
 
 **`agent` is the interesting one**: it can *add* but cannot alter or delete anything that
 already exists. Point an unattended agent at it and the worst it can do is create clutter.
@@ -39,6 +43,12 @@ setting a custom field and adding a dependency all mutate an *existing* task; cr
 webhook starts streaming your data to an external endpoint. Append-only and safe are not the
 same property.
 
+**A fourth resource the policy cannot see.** `policy.ts` inspects outbound URLs, which covers
+every capability here except `attach` — a local file read has no URL. Round 5 found that gap the
+hard way (`../.env` → the API token → full access regardless of profile). `core/localfile.ts` is
+the second chokepoint that closes it; see its header. The generalisable question for any new
+capability: *what can this touch that the URL policy cannot see?*
+
 **Known rough edge:** under `read`, `comment(task, text)` silently degrades to reading rather
 than announcing that posting is unavailable. It never posts and never claims to have — the
 reply is plainly a comment listing — but it does not say why.
@@ -48,7 +58,7 @@ reply is plainly a comment listing — but it does not say why.
 v3 mirrors the ClickUp REST API one endpoint per tool. Measured against the live API on
 2026-08-15:
 
-| | v3.4.1 | v4.0.0 | |
+| | v3.4.1 | v4.3.0 | |
 |---|---|---|---|
 | Tool schemas, paid on **every** request | 66,972 B ≈ **18,603 tok** | 17,060 B ≈ **4,739 tok** | −74.5% |
 | One 100-task list | 14,625 B ≈ **4,063 tok** | 2,683 B ≈ **745 tok** | −81.7% |

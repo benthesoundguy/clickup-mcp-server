@@ -29,6 +29,13 @@ Environment=MCP_STRICT_ENV=1
 Environment=MCP_HTTP_HOST=127.0.0.1
 Environment=MCP_HTTP_PORT=8000
 
+# Deliberately pinned to the v3 entry point, not the package default.
+#
+# As of 4.3.0 `npm start` and the `clickup-mcp-server` bin run v4. This unit does not, because
+# v4 has never been deployed and a running service must not change major version because a
+# default moved underneath it. Migrate by changing this line to build/v4/index.js and setting
+# MCP_PROFILE explicitly — v4 defaults to `core`, which does not include webhook or membership
+# administration.
 ExecStart=/usr/bin/node build/index.js
 
 # Foreground process, logs on stdout, clean SIGTERM handling.

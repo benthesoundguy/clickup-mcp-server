@@ -93,7 +93,7 @@ function makeCtx(over = {}) {
     return j({ err: 'not stubbed: ' + method + ' ' + p, ECODE: 'TEST_000' }, 404);
   };
 
-  return { ctx: buildContext({ token: 'pk', workspaceId: WS, fetchImpl }), world };
+  return { ctx: buildContext({ token: 'pk', workspaceId: WS, profile: 'full', fetchImpl }), world };
 }
 
 // ------------------------------------------------------------------ people (billing safety)

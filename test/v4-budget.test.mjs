@@ -47,7 +47,9 @@ const G3_MAX_TOOLS = 18;
 async function listTools() {
   // A real tools/list over an in-memory transport, so this measures what a client actually
   // receives — not what we think the schemas serialise to.
-  const { server } = buildServer({ token: 'pk_offline_test' });
+  // Explicitly `full`: the budget ceilings are about the widest surface a client can be
+  // handed, not about whatever the default profile happens to be today.
+  const { server } = buildServer({ token: 'pk_offline_test', profile: 'full' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'budget', version: '1' }, { capabilities: {} });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -161,6 +163,7 @@ describe('G6 — errors teach', () => {
     // always emits a "Fix:" line. This asserts the wrapper is actually wired up.
     const { server } = buildServer({
       token: 'pk_offline_test',
+      profile: 'full',
       fetchImpl: async () =>
         new Response(JSON.stringify({ err: 'Team not authorized', ECODE: 'OAUTH_027' }), {
           status: 401,

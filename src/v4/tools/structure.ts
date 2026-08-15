@@ -9,7 +9,13 @@ import { z } from 'zod';
 import type { Ctx, ToolDef } from './registry.js';
 import { ClickUpToolError, isPolicyDenial, unresolved } from '../core/errors.js';
 import { renderTable } from '../core/format.js';
+import { SERVER_VERSION, buildStamp } from '../core/version.js';
 import { describeProfile } from '../core/policy.js';
+
+/** "1 space" not "1 spaces" — small, but it is the first thing a user reads. */
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
 
 export const treeTool: ToolDef = {
   name: 'tree',
@@ -301,10 +307,17 @@ export const whoamiTool: ToolDef = {
     const rate = stats.rate;
 
     const lines = [
+      // First line, deliberately: an MCP host holds the process it spawned at session start, so
+      // a rebuild does not reach a running session. "The fix didn't work" is usually an old
+      // process, and this is the one glance that settles it.
+      `server: v${SERVER_VERSION} · ${buildStamp()}`,
       `profile: ${describeProfile(ctx.profile)}`,
+      `attachments: ${
+        ctx.attachRoot ? `local reads confined to ${ctx.attachRoot}` : 'no local-read sandbox configured'
+      }`,
       `user: ${me.username} <${me.email}> (${me.id})`,
       `workspace: ${idx.workspaceName} (${idx.workspaceId})`,
-      `structure: ${idx.spaces.length} spaces, ${idx.folders.length} folders, ${idx.lists.length} lists`,
+      `structure: ${plural(idx.spaces.length, 'space')}, ${plural(idx.folders.length, 'folder')}, ${plural(idx.lists.length, 'list')}`,
       `index cost: ${idx.cost} API calls, built ${Math.round((Date.now() - idx.builtAt) / 1000)}s ago`,
       `requests this session: ${stats.requests} (retries ${stats.retries}, throttle waits ${stats.throttleWaits})`,
       rate.remaining !== null

@@ -323,7 +323,10 @@ describe('profiles table', () => {
   });
 
   test('parseProfile rejects nonsense rather than defaulting silently', () => {
-    assert.equal(parseProfile(undefined), 'full');
+    // The default is `core`, not `full`: a default nobody changes has to be the safe one, and
+    // `full` grants membership admin (billable seats, real people's access) plus webhooks.
+    assert.equal(parseProfile(undefined), 'core');
+    assert.equal(parseProfile(''), 'core');
     assert.equal(parseProfile('agent'), 'agent');
     assert.throws(() => parseProfile('admin'), /not valid/);
   });

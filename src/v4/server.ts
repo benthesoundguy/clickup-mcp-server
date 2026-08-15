@@ -13,14 +13,15 @@ import { TtlCache } from './core/cache.js';
 import { Resolver } from './core/resolve.js';
 import { ClickUpToolError } from './core/errors.js';
 import type { Ctx, ToolDef, Restriction } from './tools/registry.js';
-import { POLICIES, describeProfile, type Profile } from './core/policy.js';
+import { POLICIES, describeProfile, DEFAULT_PROFILE, type Profile } from './core/policy.js';
 import { toolsFor } from './tools/profiles.js';
 import { taskTools } from './tools/tasks.js';
 import { structureTools } from './tools/structure.js';
 import { extraTools } from './tools/extras.js';
 import { extendedTools } from './tools/extended.js';
 
-export const SERVER_VERSION = '4.3.0';
+export { SERVER_VERSION } from './core/version.js';
+import { SERVER_VERSION } from './core/version.js';
 
 export const allTools: ToolDef[] = [
   ...taskTools,
@@ -34,7 +35,7 @@ const MAX_RESPONSE_CHARS = 60_000;
 
 export interface BuildOptions {
   token: string;
-  /** Capability profile. Defaults to `full`. */
+  /** Capability profile. Defaults to `core` — see DEFAULT_PROFILE. */
   profile?: Profile;
   /** Override the API root. Exists so tests can point at a stub instead of the live API. */
   baseUrl?: string;
@@ -61,7 +62,7 @@ export function buildContext(opts: BuildOptions): Ctx {
   const log = opts.log ?? (() => {});
   const http = new ClickUpHttp({
     token: opts.token,
-    policy: POLICIES[opts.profile ?? 'full'],
+    policy: POLICIES[opts.profile ?? DEFAULT_PROFILE],
     baseUrl: opts.baseUrl ?? process.env.CLICKUP_API_BASE?.trim() ?? undefined,
     clock: opts.clock,
     fetchImpl: opts.fetchImpl,
@@ -75,7 +76,7 @@ export function buildContext(opts: BuildOptions): Ctx {
     resolver,
     cache,
     workspaceId,
-    profile: opts.profile ?? 'full',
+    profile: opts.profile ?? DEFAULT_PROFILE,
     attachRoot: opts.attachRoot ?? null,
     now: opts.now ?? Date.now,
     log,

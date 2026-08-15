@@ -133,7 +133,7 @@ function makeCtx(opts = {}) {
     return json({ err: 'not stubbed: ' + method + ' ' + p, ECODE: 'TEST_000' }, 404);
   };
 
-  const ctx = buildContext({ token: 'pk_test', workspaceId: WORKSPACE_ID, fetchImpl });
+  const ctx = buildContext({ token: 'pk_test', workspaceId: WORKSPACE_ID, profile: 'full', fetchImpl });
   return { ctx, world };
 }
 

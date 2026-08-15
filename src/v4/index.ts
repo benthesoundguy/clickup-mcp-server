@@ -25,6 +25,7 @@ import { toolsFor } from './tools/profiles.js';
 import { accessConfigFromEnv, authorize, publicOrigin } from './core/auth.js';
 import { parseProfile, describeProfile } from './core/policy.js';
 import { resolveSandbox } from './core/localfile.js';
+import { buildStamp } from './core/version.js';
 
 const DEFAULT_HTTP_HOST = '127.0.0.1';
 const DEFAULT_HTTP_PORT = 8000;
@@ -50,17 +51,6 @@ const log = (msg: string) => {
   if (httpMode) process.stdout.write(line);
   else process.stderr.write(line);
 };
-
-function buildStamp(): string {
-  try {
-    const self = fileURLToPath(import.meta.url);
-    const mtime = fs.statSync(self).mtime.toISOString();
-    const started = new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString();
-    return `build ${mtime} · started ${started}`;
-  } catch {
-    return 'build stamp unavailable';
-  }
-}
 
 async function main(): Promise<void> {
   const token = process.env.CLICKUP_API_TOKEN?.trim();
@@ -149,7 +139,12 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
           name: 'clickup-mcp-v4',
           version: SERVER_VERSION,
           profile: ctx.profile,
-          tools: toolsFor(allTools, ctx.profile, (t) => t).length,
+          // Same inputs as the real registration, so /health can't disagree with what a
+          // client is actually offered — the sandbox decides whether `attach` is among them.
+          tools: toolsFor(allTools, ctx.profile, (t) => t, {
+            hasSandbox: ctx.attachRoot !== null,
+          }).length,
+          attach_root: ctx.attachRoot,
           build: buildStamp(),
         }),
       );

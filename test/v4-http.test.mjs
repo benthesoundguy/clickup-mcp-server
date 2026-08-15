@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import * as http from 'node:http';
 import { allTools } from '../build/v4/server.js';
+import { toolsFor } from '../build/v4/tools/profiles.js';
 
 const AUTH_TOKEN = 'test-token-that-is-long-enough-32ch';
 let clickupStub;
@@ -107,8 +108,12 @@ describe('v4 HTTP transport', () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.ok, true);
-    // Assert against the registry, not a literal — otherwise every new tool breaks this.
-    assert.equal(body.tools, allTools.length);
+    // Assert against what this profile actually exposes, not the whole registry: /health
+    // reports the connection's surface, and the default profile is `core`, not `full`.
+    assert.equal(body.profile, 'core', 'no MCP_PROFILE was set, so the safe default applies');
+    assert.equal(body.tools, toolsFor(allTools, 'core', (t) => t, { hasSandbox: false }).length);
+    assert.ok(body.tools < allTools.length, 'the default must not expose the full registry');
+    assert.equal(body.attach_root, null, 'no sandbox configured in this fixture');
     const raw = JSON.stringify(body);
     assert.ok(!raw.includes(AUTH_TOKEN), 'health must never echo the auth token');
     assert.ok(!raw.includes('pk_stub'), 'health must never echo the ClickUp token');

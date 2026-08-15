@@ -33,9 +33,21 @@ export function profileAtLeast(actual: Profile, required: Profile): boolean {
   return RANK[actual] >= RANK[required];
 }
 
+/**
+ * The default profile is `core`, not `full`.
+ *
+ * `full` grants membership and webhook administration — inviting users consumes billable seats,
+ * removing one changes a real person's access, and a webhook streams workspace data to an
+ * external endpoint. None of that is what someone connecting a ClickUp server for the first time
+ * is trying to do, and a default nobody changes has to be the safe one. Anyone who genuinely
+ * wants administration asks for it by name, and the refusal they get until they do says exactly
+ * how.
+ */
+export const DEFAULT_PROFILE: Profile = 'core';
+
 export function parseProfile(raw: string | undefined): Profile {
   const p = (raw ?? '').trim().toLowerCase();
-  if (!p) return 'full';
+  if (!p) return DEFAULT_PROFILE;
   if ((PROFILES as string[]).includes(p)) return p as Profile;
   throw new Error(
     `MCP_PROFILE=${JSON.stringify(raw)} is not valid. Use one of: ${PROFILES.join(', ')}.`,
@@ -292,7 +304,7 @@ export function describeProfile(p: Profile): string {
     case 'read':
       return 'read — observation only; no write of any kind can leave this process';
     case 'agent':
-      return 'agent — read, plus append-only writes (create tasks, comments, chat messages, checklist items, time logs, attachments). Cannot alter or delete anything that already exists';
+      return 'agent — read, plus append-only writes (create tasks, comments, chat messages, checklist items, time logs). Cannot alter or delete anything that already exists';
     case 'core':
       return 'core — everything a normal user does; no membership, guest or webhook administration';
     case 'full':
