@@ -1,5 +1,52 @@
 # Changelog
 
+## 3.3.0 — 2026-08-15
+
+Deployment hardening for running as an unattended systemd service. No tool
+behaviour changes; the surface is still 88 tools / 148 operations.
+
+### Added
+- **`MCP_STRICT_ENV=1`** — the posture for a server deployment. Secrets must
+  come from the environment: the `.env`-file lookup is disabled, no auth token
+  is ever generated or persisted, and the process exits `1` with an actionable
+  message if `MCP_AUTH_TOKEN` or `CLICKUP_API_TOKEN` is missing. The file lookup
+  deliberately outranks `process.env` (a desktop host rewrites its own config,
+  so the file has to win there) — which is exactly backwards on a server, where
+  a stray `.env` would silently outrank the systemd unit.
+- **Configurable bind address.** `MCP_HTTP_HOST` (default `127.0.0.1`) and
+  `MCP_HTTP_PORT` (default `8000`). Previously the listener took no host
+  argument at all and bound every interface — behind a tunnel on a host with a
+  public IP, that exposed the server directly. `MCP_TRANSPORT=http` selects HTTP
+  without having to set a port.
+- **`GET /health`** alongside the existing `/healthz` and `/`.
+- **Strict mode refuses the URL-path token form** (`/mcp/<token>`), which exists
+  because claude.ai's connector UI has no custom-header field, but puts the
+  credential somewhere proxy and CDN access logs keep. Re-enable with
+  `MCP_ALLOW_TOKEN_IN_PATH=1`.
+
+### Fixed
+- **`server_info` reported `transport: "stdio"` while serving HTTP.** It keyed
+  off `MCP_HTTP_PORT` rather than the resolved transport, so any HTTP deployment
+  using the default port misreported itself — a wrong answer from the one tool
+  whose entire job is telling you what is running.
+- HTTP mode logs to **stdout** (systemd's expectation) instead of stderr. stdio
+  mode still logs to stderr, where it must: stdout is the JSON-RPC channel.
+- **SIGTERM shutdown no longer stalls.** `httpServer.close()` alone waits on idle
+  keepalive sockets; shutdown now drops them via `closeAllConnections()` and
+  hard-exits after 5s if a request hangs.
+- `deploy/clickup-mcp.service`: `StartLimitIntervalSec`/`StartLimitBurst` were
+  under `[Service]`, where systemd silently ignores them — so the restart
+  rate-limit never applied and a missing secret would have hot-looped. Moved to
+  `[Unit]`; unit now passes `systemd-analyze verify` clean. Secrets moved out of
+  `WorkingDirectory` to `/etc/clickup-mcp/env`, and the hardening block extended
+  (no writable paths, `SystemCallFilter`, `RestrictAddressFamilies`, `MemoryMax`).
+
+### Verified on target
+Ubuntu 24.04.4 LTS / `aarch64` / Node 22.11.0: `npm ci` needs no native build
+(0 `.node` binaries in the tree), 96 production packages, 26 MB `node_modules`,
+~98 MB idle RSS, and zero disk writes under strict mode. 72 unit tests pass
+(4 new, covering strict-mode refusals and path-token rejection).
+
 ## 3.2.0 — 2026-08-14
 
 Fixes from round 3 of adversarial testing. Round 3 verified 5/5 of the 3.0.x

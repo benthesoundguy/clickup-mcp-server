@@ -55,15 +55,44 @@ Get your API token from **ClickUp Settings → Apps → API Token**.
 ### Remote mode (Claude web + mobile)
 
 The server also speaks **streamable HTTP** for claude.ai custom connectors —
-which sync to the Claude mobile app. Set two env vars and it switches transports:
+which sync to the Claude mobile app:
 
 ```bash
-MCP_HTTP_PORT=8809 MCP_AUTH_TOKEN=$(openssl rand -hex 24) CLICKUP_API_TOKEN=... node build/index.js
+MCP_TRANSPORT=http MCP_AUTH_TOKEN=$(openssl rand -hex 24) CLICKUP_API_TOKEN=... node build/index.js
 ```
 
 Every request must present the auth token (`Authorization: Bearer <token>`, or
 in the path: `/mcp/<token>` — the form claude.ai's connector UI needs).
-`GET /healthz` is an unauthenticated health probe.
+`GET /health` is an unauthenticated probe.
+
+#### Environment variables
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CLICKUP_API_TOKEN` | — | **Required.** ClickUp personal API token. |
+| `MCP_TRANSPORT` | `stdio` | Set to `http` for streamable HTTP. |
+| `MCP_HTTP_HOST` | `127.0.0.1` | Bind address. Loopback by default — put a proxy or tunnel in front rather than binding `0.0.0.0`. |
+| `MCP_HTTP_PORT` | `8000` | Also selects HTTP mode if set. |
+| `MCP_AUTH_TOKEN` | generated | Bearer token, min 16 chars. Without it the server generates one and persists it to `.mcp-auth-token` (0600). |
+| `MCP_STRICT_ENV` | off | **Set to `1` for servers** — see below. |
+| `MCP_ALLOW_TOKEN_IN_PATH` | off in strict | Re-enables the `/mcp/<token>` URL form under strict mode. |
+| `MCP_NO_ENV_FILE` | off | Disables the `.env` file lookup (implied by strict mode). |
+
+#### Strict mode (`MCP_STRICT_ENV=1`)
+
+The posture for an unattended deployment. Secrets must come from the
+environment, the server never invents or persists a credential, and it exits `1`
+with an actionable message rather than starting misconfigured. It also refuses
+the URL-path token form, which lands the credential in proxy access logs.
+
+This matters because the `.env`-file lookup deliberately outranks `process.env`
+— a desktop host rewrites its own config file from memory on quit, so the file
+has to win there. On a server that precedence is backwards: a stray `.env` in
+the working directory would silently outrank the systemd unit. Strict mode
+turns the lookup off.
+
+Verified on Ubuntu 24.04 / `aarch64` / Node 22: no native dependencies, 96
+production packages, 26 MB `node_modules`, ~98 MB idle RSS, and no disk writes.
 
 See [deploy/DEPLOY.md](deploy/DEPLOY.md) for the full recipe: VPS setup script,
 hardened systemd unit, Cloudflare Tunnel, and connecting it to Claude.

@@ -1,22 +1,71 @@
 [Unit]
 Description=ClickUp MCP server (streamable HTTP)
+Documentation=https://github.com/benthesoundguy/clickup-mcp-server
 After=network-online.target
 Wants=network-online.target
+# A missing secret exits 1 immediately; without a cap that becomes a hot restart
+# loop. Five failures in a minute stops the unit so the failure is visible.
+# (These are [Unit] keys — systemd silently ignores them under [Service].)
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=mcp
+Group=mcp
 WorkingDirectory=/opt/clickup-mcp-server
-EnvironmentFile=/opt/clickup-mcp-server/.env
+
+# Secrets live outside WorkingDirectory on purpose. The ClickUp client's
+# .env-file lookup searches the working directory and deliberately outranks
+# process.env (a desktop host rewrites its own config, so the file has to win
+# there). On a server that precedence is backwards, so MCP_STRICT_ENV=1 disables
+# the lookup entirely and this file becomes the only source of truth.
+# Create as root:0600 —  CLICKUP_API_TOKEN=...  MCP_AUTH_TOKEN=...
+EnvironmentFile=/etc/clickup-mcp/env
+
+Environment=NODE_ENV=production
+Environment=MCP_TRANSPORT=http
+Environment=MCP_STRICT_ENV=1
+Environment=MCP_HTTP_HOST=127.0.0.1
+Environment=MCP_HTTP_PORT=8000
+
 ExecStart=/usr/bin/node build/index.js
-Restart=always
+
+# Foreground process, logs on stdout, clean SIGTERM handling.
+StandardOutput=journal
+StandardError=journal
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+Restart=on-failure
 RestartSec=3
-# Hardening
+
+# ── Hardening ────────────────────────────────────────────────────────────
+# In strict mode the server writes nothing to disk, so nothing is writable.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/clickup-mcp-server
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+# Resource ceilings — idle RSS is ~100 MB; this leaves generous headroom
+# while still capping a runaway.
+MemoryMax=1G
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target

@@ -15,13 +15,14 @@ let proc;
 before(async () => {
   proc = spawn('node', [resolve(here, '../build/index.js')], {
     env: { ...process.env, MCP_HTTP_PORT: String(PORT), MCP_AUTH_TOKEN: AUTH, CLICKUP_API_TOKEN: 'pk_unit_fake' },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  // Wait for the listen line (or up to 5s)
+  // HTTP mode logs to stdout (systemd's expectation); stdio mode must keep
+  // stdout clean for JSON-RPC, so only this transport can do that.
   await new Promise((res, rej) => {
     const t = setTimeout(() => rej(new Error('server did not start')), 5000);
-    proc.stderr.on('data', (d) => {
-      if (String(d).includes('listening on HTTP')) { clearTimeout(t); res(); }
+    proc.stdout.on('data', (d) => {
+      if (String(d).includes('listening on http')) { clearTimeout(t); res(); }
     });
     proc.on('exit', (code) => rej(new Error('server exited early: ' + code)));
   });
@@ -94,13 +95,13 @@ test('with no MCP_AUTH_TOKEN, server generates + persists one and reuses it', as
     const p2 = spawn('node', [resolve(here, '../build/index.js')], {
       cwd,
       env: { ...process.env, MCP_HTTP_PORT: String(PORT + 1), MCP_AUTH_TOKEN: '', CLICKUP_API_TOKEN: 'pk_unit_fake' },
-      stdio: ['ignore', 'ignore', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     let err = '';
     const t = setTimeout(() => rej(new Error('no start: ' + err)), 5000);
-    p2.stderr.on('data', (d) => {
+    p2.stdout.on('data', (d) => {
       err += d;
-      if (err.includes('listening on HTTP')) { clearTimeout(t); res({ proc: p2, log: err }); }
+      if (err.includes('listening on http')) { clearTimeout(t); res({ proc: p2, log: err }); }
     });
     p2.on('exit', (code) => rej(new Error(`exited ${code}: ${err}`)));
   });
@@ -118,4 +119,80 @@ test('with no MCP_AUTH_TOKEN, server generates + persists one and reuses it', as
   const token2 = readFileSync(tokenFile, 'utf-8').trim();
   assert.equal(token2, token1, 'restart must reuse the same token');
   assert.match(run2.log, /Using generated token from/);
+});
+
+// ── strict env mode (unattended server deployments) ──────────────────────
+
+/** Run the server to completion, capturing exit code and output. */
+const runToExit = (env, cwd) => new Promise((res) => {
+  const p = spawn('node', [resolve(here, '../build/index.js')], {
+    cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  p.stdout.on('data', (d) => { out += d; });
+  p.stderr.on('data', (d) => { out += d; });
+  p.on('exit', (code) => res({ code, out }));
+});
+
+test('strict mode refuses to start without MCP_AUTH_TOKEN, exit 1', async () => {
+  const { mkdtempSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const cwd = mkdtempSync(resolve(tmpdir(), 'mcp-strict-'));
+  const { code, out } = await runToExit({
+    MCP_TRANSPORT: 'http', MCP_STRICT_ENV: '1',
+    MCP_AUTH_TOKEN: '', CLICKUP_API_TOKEN: 'pk_unit_fake',
+  }, cwd);
+  assert.equal(code, 1, 'must exit non-zero so systemd sees a failure');
+  assert.match(out, /requires MCP_AUTH_TOKEN/);
+  // The whole point: no credential invented, nothing written to disk.
+  assert.ok(!existsSync(resolve(cwd, '.mcp-auth-token')), 'must not generate a token file');
+});
+
+test('strict mode refuses to start without CLICKUP_API_TOKEN, exit 1', async () => {
+  const { code, out } = await runToExit({
+    MCP_TRANSPORT: 'http', MCP_STRICT_ENV: '1',
+    MCP_AUTH_TOKEN: 'a-sufficiently-long-token-value', CLICKUP_API_TOKEN: '',
+  });
+  assert.equal(code, 1);
+  assert.match(out, /requires CLICKUP_API_TOKEN/);
+});
+
+test('strict mode rejects the URL-path token form; header still works', async () => {
+  const PORT2 = PORT + 2;
+  const TOK = 'strict-mode-path-test-token-x';
+  const p = spawn('node', [resolve(here, '../build/index.js')], {
+    env: {
+      ...process.env, MCP_TRANSPORT: 'http', MCP_HTTP_PORT: String(PORT2),
+      MCP_STRICT_ENV: '1', MCP_AUTH_TOKEN: TOK, CLICKUP_API_TOKEN: 'pk_unit_fake',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  try {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('no start')), 5000);
+      p.stdout.on('data', (d) => {
+        if (String(d).includes('listening on http')) { clearTimeout(t); res(); }
+      });
+    });
+    const body = JSON.stringify(INIT);
+    const hdrs = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+
+    const viaPath = await fetch(`http://127.0.0.1:${PORT2}/mcp/${TOK}`, { method: 'POST', headers: hdrs, body });
+    assert.equal(viaPath.status, 401, 'token in URL path must be refused in strict mode');
+
+    const viaHeader = await fetch(`http://127.0.0.1:${PORT2}/mcp`, {
+      method: 'POST', headers: { ...hdrs, Authorization: `Bearer ${TOK}` }, body,
+    });
+    assert.equal(viaHeader.status, 200, 'Authorization header must still work');
+  } finally {
+    p.kill();
+  }
+});
+
+test('/health responds 200 without auth', async () => {
+  const res = await fetch(`http://127.0.0.1:${PORT}/health`);
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.equal(j.ok, true);
+  assert.equal(j.name, 'clickup-mcp-server');
 });
