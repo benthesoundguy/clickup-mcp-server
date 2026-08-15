@@ -148,7 +148,28 @@ export const findTool: ToolDef = {
         }
         params.statuses = mapped;
       } else {
-        params.statuses = wanted;
+        // No list scope, so validate against every status defined anywhere in the workspace.
+        // Passing an unknown status straight through returns zero tasks, which reads as
+        // "nothing is in that state" rather than "there is no such state".
+        const known = await ctx.resolver.knownStatuses();
+        const lower = new Map(known.map((v) => [v.toLowerCase(), v]));
+        const mapped: string[] = [];
+        for (const w of wanted) {
+          const hit = lower.get(w.trim().toLowerCase());
+          if (!hit) {
+            throw new ClickUpToolError({
+              what: `No space in this workspace defines a status called ${JSON.stringify(w)}.`,
+              fix:
+                'Filtering on it would return zero tasks, which would look like "nothing is in ' +
+                'that state" rather than "no such state exists". Use one of the statuses below, ' +
+                'or scope the query to a specific list — a list may define custom statuses of ' +
+                'its own, which are validated exactly when you name the list.',
+              candidates: known,
+            });
+          }
+          mapped.push(hit);
+        }
+        params.statuses = mapped;
       }
       headerBits.push(`status=${wanted.join(',')}`);
     }
@@ -451,6 +472,19 @@ export const createTool: ToolDef = {
     const bodies: Record<string, unknown>[] = [];
     for (const s of specs) bodies.push(await buildTaskBody(ctx, s, listRef.id, true));
 
+    // Work out which tags are about to be conjured into existence, before anything is written.
+    const requestedTags = new Set<string>();
+    for (const s of specs) {
+      if (Array.isArray(s.tags)) for (const t of s.tags as string[]) requestedTags.add(String(t));
+    }
+    let newTags: string[] = [];
+    if (requestedTags.size && listRef.spaceId) {
+      const existing = new Set(
+        (await ctx.resolver.spaceTags(listRef.spaceId)).map((t) => t.toLowerCase()),
+      );
+      newTags = [...requestedTags].filter((t) => !existing.has(t.toLowerCase()));
+    }
+
     const created: ShapedTask[] = [];
     const failures: string[] = [];
     for (const [i, body] of bodies.entries()) {
@@ -472,10 +506,21 @@ export const createTool: ToolDef = {
 
     const header = `created ${created.length}/${specs.length} in ${listRef.path}`;
     const table = renderTaskTable(created, { header, hideColumns: ['list'] });
-    if (failures.length) {
-      return `${table}\n\nFAILED ${failures.length}:\n${failures.join('\n')}`;
+
+    const notes: string[] = [];
+    if (newTags.length) {
+      // ClickUp auto-creates any tag it doesn't recognise, so a typo becomes a permanent
+      // workspace tag with no error. Creating tags on demand is often wanted, so this reports
+      // rather than blocks — but it must not happen invisibly.
+      notes.push(
+        `Note: ${newTags.length} tag${newTags.length === 1 ? ' did' : 's did'} not exist in this ` +
+          `space and ${newTags.length === 1 ? 'was' : 'were'} created: ${newTags.join(', ')}. ` +
+          `If that was a typo, remove it in ClickUp — tags persist workspace-wide.`,
+      );
     }
-    return table;
+    if (failures.length) notes.push(`FAILED ${failures.length}:\n${failures.join('\n')}`);
+
+    return notes.length ? `${table}\n\n${notes.join('\n\n')}` : table;
   },
 };
 

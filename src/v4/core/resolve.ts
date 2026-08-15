@@ -343,6 +343,52 @@ export class Resolver {
       return (r.statuses ?? []).map((s) => s.status);
     });
   }
+
+  /** A space's default statuses — one cheap call, cached. */
+  async spaceStatuses(spaceId: string): Promise<string[]> {
+    return this.cache.remember(`space-statuses:${spaceId}`, async () => {
+      const r = await this.http.get<RawListDetail>(`/space/${spaceId}`, `space ${spaceId}`);
+      return (r.statuses ?? []).map((s) => s.status);
+    });
+  }
+
+  /**
+   * Every status defined anywhere in the workspace.
+   *
+   * This exists so a query with no list scope can still be validated. Without it,
+   * `find(status: "in progres")` returns zero tasks and reads as "nothing is in progress",
+   * which is the confident-wrong-answer failure this server is organised against. Costs one
+   * call per space, cached.
+   *
+   * Caveat, stated in the error rather than hidden: a *list* may override its space's
+   * statuses, so this union can miss a list-specific custom status.
+   */
+  async knownStatuses(): Promise<string[]> {
+    return this.cache.remember('known-statuses', async () => {
+      const idx = await this.index();
+      const sets = await Promise.all(idx.spaces.map((s) => this.spaceStatuses(s.id)));
+      const seen = new Map<string, string>();
+      for (const set of sets) {
+        for (const s of set) if (!seen.has(s.toLowerCase())) seen.set(s.toLowerCase(), s);
+      }
+      return [...seen.values()];
+    });
+  }
+
+  /** Space-level tags, used to tell the caller when a tag is about to be created, not applied. */
+  async spaceTags(spaceId: string): Promise<string[]> {
+    return this.cache.remember(`space-tags:${spaceId}`, async () => {
+      try {
+        const r = await this.http.get<{ tags?: { name: string }[] }>(
+          `/space/${spaceId}/tag`,
+          `space ${spaceId}`,
+        );
+        return (r.tags ?? []).map((t) => t.name);
+      } catch {
+        return [];
+      }
+    });
+  }
 }
 
 /**

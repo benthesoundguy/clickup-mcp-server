@@ -25,6 +25,8 @@ const MAX_RESPONSE_CHARS = 60_000;
 
 export interface BuildOptions {
   token: string;
+  /** Override the API root. Exists so tests can point at a stub instead of the live API. */
+  baseUrl?: string;
   workspaceId?: string;
   clock?: Clock;
   fetchImpl?: typeof fetch;
@@ -42,6 +44,7 @@ export function buildContext(opts: BuildOptions): Ctx {
   const log = opts.log ?? (() => {});
   const http = new ClickUpHttp({
     token: opts.token,
+    baseUrl: opts.baseUrl ?? process.env.CLICKUP_API_BASE?.trim() ?? undefined,
     clock: opts.clock,
     fetchImpl: opts.fetchImpl,
     onLog: log,
@@ -69,9 +72,24 @@ export async function discoverWorkspaceId(ctx: Ctx): Promise<string> {
   return idx.workspaceId;
 }
 
+/**
+ * Build an MCP server around an *existing* context.
+ *
+ * This split matters for stateless HTTP mode, which creates a fresh `McpServer` per request.
+ * Building a fresh context alongside it would rebuild the workspace index on every single
+ * request — six API calls each, against a 100/minute budget. The protocol object is
+ * per-request; the cache, resolver and rate governor are per-process.
+ */
+export function buildServerWithContext(ctx: Ctx): McpServer {
+  return assemble(ctx);
+}
+
 export function buildServer(opts: BuildOptions): BuiltServer {
   const ctx = buildContext(opts);
+  return { server: assemble(ctx), ctx };
+}
 
+function assemble(ctx: Ctx): McpServer {
   const server = new McpServer(
     { name: 'clickup', version: SERVER_VERSION },
     {
@@ -117,5 +135,5 @@ export function buildServer(opts: BuildOptions): BuiltServer {
     });
   }
 
-  return { server, ctx };
+  return server;
 }
