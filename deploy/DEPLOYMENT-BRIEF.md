@@ -1,8 +1,9 @@
-# Deployment Brief — ClickUp MCP Server v3.3.1
+# Deployment Brief — ClickUp MCP Server v3.3.2
 
-> Evidence transcripts below were captured on 3.3.0. 3.3.1 changes only the
-> `prepare` script and a transitive dependency version; runtime behaviour,
-> tool surface, and env contract are identical.
+> Evidence transcripts below were captured on 3.3.0. Since then 3.3.1 changed
+> only the `prepare` script and a transitive dependency version, and 3.3.2 only
+> `deploy/` docs and the setup script. Runtime behaviour, tool surface, and the
+> env contract are identical.
 
 Answers to the deployment questionnaire, with evidence. Target: Ubuntu 24.04
 Minimal / aarch64 / Oracle A1, behind Cloudflare Tunnel at
@@ -165,7 +166,7 @@ node build/index.js
 Build from source first:
 
 ```bash
-git clone --branch v3.3.1 --depth 1 \
+git clone --branch v3.3.2 --depth 1 \
   https://github.com/benthesoundguy/clickup-mcp-server.git clickup-mcp
 cd clickup-mcp
 npm ci             # installs devDeps; `prepare` builds automatically
@@ -189,6 +190,7 @@ A full `npm ci` reports ~10 vulnerabilities. **Nine are devDependencies**
 
 ```bash
 npm audit --omit=dev     # → found 0 vulnerabilities  (as of 3.3.1)
+
 ```
 
 `deploy/clickup-mcp.service` is a ready systemd unit — it passes

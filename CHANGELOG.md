@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.3.2 — 2026-08-15
+
+Deploy tooling only. No runtime changes.
+
+### Fixed
+- **`deploy/setup-vps.sh` would have produced a broken install.** It predated
+  3.3.0 and contradicted the shipped systemd unit at four points: it used port
+  8809 where the unit uses 8000, wrote secrets to `$INSTALL_DIR/.env` — the one
+  location `MCP_STRICT_ENV` exists to stop the server trusting — cloned `main`
+  rather than a tag, and carried an `--ignore-scripts` + `npm install typescript
+  --no-save` + `npx tsc` dance that was a workaround for the `prepare` bug fixed
+  in 3.3.1. Rewritten: pins a tag, builds via the normal `npm ci` +
+  `npm prune --omit=dev` path, writes `/etc/clickup-mcp/env` as root `0600`,
+  runs `systemd-analyze verify`, and health-checks `/health`. Idempotent, and
+  non-interactive when `CLICKUP_API_TOKEN` is already in the environment.
+- `deploy/DEPLOY.md` rewritten for the same reasons: port, `/healthz` → `/health`,
+  secret location, tag pinning, and an update path that no longer assumes
+  `typescript` is installed (it is pruned).
+
+### Added
+- **DEPLOY.md now documents that Cloudflare Access and the claude.ai connector
+  cannot coexist on one hostname.** claude.ai's connector cannot send
+  `CF-Access-Client-Id` / `CF-Access-Client-Secret`, so a service-token policy
+  blocks it outright. The fix is two hostnames on the same tunnel — one behind
+  Access for header-auth clients, one bypassed for the connector — with the
+  app's bearer check still running on both.
+
 ## 3.3.1 — 2026-08-15
 
 Both fixes came out of a real install on the target host rather than a test
