@@ -12,7 +12,7 @@ A Model Context Protocol server for ClickUp, built around two ideas:
 
 **You choose what it can do.** Four capability profiles, enforced on every outgoing request. Hand an unattended agent the `agent` profile and it can create tasks and comments but cannot alter or delete anything that already exists.
 
-18 tools, 320 tests. Version **4.3.0** — see [CHANGELOG.md](CHANGELOG.md). A heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server).
+18 tools, 354 tests. Version **4.3.0** — see [CHANGELOG.md](CHANGELOG.md). A heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server).
 
 > **Status:** 4.x is new. It has been through five adversarial red-team rounds but has not yet run in production. The previous 3.x line is still shipped in this repo and still what the reference deployment runs — see [Running 3.x](#running-3x).
 
@@ -181,24 +181,65 @@ Errors say what failed, why, and what to do next, with the valid options listed.
 | `MCP_TRANSPORT` | `stdio` | Set to `http` for streamable HTTP. |
 | `MCP_HTTP_HOST` | `127.0.0.1` | Bind address. Loopback by default — put a proxy or tunnel in front rather than binding `0.0.0.0`. |
 | `MCP_HTTP_PORT` | `8000` | Also selects HTTP mode if set. |
-| `MCP_AUTH_TOKEN` | generated | Bearer token, min 16 chars. Without it the server generates one and persists it to `.mcp-auth-token` (0600). |
+| `MCP_AUTH_TOKEN` | generated | Static bearer token, min 16 chars. Optional once `MCP_OAUTH_ISSUER` is set. |
+| `MCP_OAUTH_ISSUER` | — | Authorization server issuer URL. Setting it makes this an OAuth resource server. |
+| `MCP_PUBLIC_URL` | — | **Required with OAuth.** This server's canonical URI — the audience inbound tokens must name. Never inferred from the request. |
+| `MCP_OAUTH_AUDIENCE` | `MCP_PUBLIC_URL` | Override, if your issuer mints a different audience value. |
+| `MCP_OAUTH_JWKS_URL` | discovered | Signing keys, if the issuer publishes no discovery document. |
+| `MCP_OAUTH_SCOPES` | — | Advertised in the metadata document. Informational. |
 | `MCP_STRICT_ENV` | off | **Set to `1` for servers** — see below. |
 | `MCP_ALLOW_TOKEN_IN_PATH` | off in strict | Re-enables the `/mcp/<token>` URL form under strict mode. |
 | `MCP_NO_ENV_FILE` | off | Disables the `.env` file lookup (implied by strict mode). |
 | `CF_ACCESS_TEAM_DOMAIN` | — | Cloudflare Access team. Enables Access JWT validation. |
 | `CF_ACCESS_AUD` | — | Access application AUD tag. Required alongside the team domain — neither alone enables anything. |
-| `MCP_PUBLIC_URL` | derived | Public origin used in the `WWW-Authenticate` discovery hint. |
 
-## Remote mode (Claude web + mobile)
+## Remote mode (Claude web + mobile, and any HTTP client)
 
-The server speaks **streamable HTTP** for claude.ai custom connectors, which sync to the Claude mobile app:
+The server speaks **streamable HTTP**, and accepts three independent credentials. Any one of them authenticates a request; they are meant to coexist, because different clients can present different things.
+
+| Credential | For | Set with |
+|---|---|---|
+| **OAuth 2.1 access token** | Hosted clients — claude.ai connectors, ChatGPT connectors, anything spec-compliant | `MCP_OAUTH_ISSUER` + `MCP_PUBLIC_URL` |
+| **Cloudflare Access JWT** | An origin behind a CF Tunnel | `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD` |
+| **Static bearer token** | Scripts, n8n, curl, CI | `MCP_AUTH_TOKEN` |
 
 ```bash
 MCP_TRANSPORT=http MCP_AUTH_TOKEN=$(openssl rand -hex 24) \
 MCP_PROFILE=core CLICKUP_API_TOKEN=... node build/v4/index.js
 ```
 
-Every request must present the auth token (`Authorization: Bearer <token>`, or in the path as `/mcp/<token>` — the form claude.ai's connector UI needs). `GET /health` is an unauthenticated probe that reports the version, active profile, tool count, and attachment root.
+`GET /health` is an unauthenticated probe reporting version, active profile, tool count and attachment root.
+
+### OAuth (what hosted clients want)
+
+**This server does not need to be an OAuth provider, and isn't one.** Since the 2025-06-18 MCP spec, an MCP server is a *resource server*: it names the authorization server it trusts and validates the tokens that server issues. Login, consent and token issuance belong to your IdP — Cloudflare Access, WorkOS, Auth0, Descope, Stytch, Keycloak, anything with OIDC discovery.
+
+```bash
+MCP_TRANSPORT=http \
+MCP_PUBLIC_URL=https://mcp.example.com \
+MCP_OAUTH_ISSUER=https://your-idp.example.com \
+CLICKUP_API_TOKEN=pk_... node build/v4/index.js
+```
+
+That is the whole configuration. The server then:
+
+- serves **RFC 9728 Protected Resource Metadata** at `/.well-known/oauth-protected-resource`, naming your issuer, unauthenticated;
+- answers an unauthenticated request with `401` and a `WWW-Authenticate` header pointing at that document, which is how a client discovers where to log in;
+- discovers your issuer's signing keys via `/.well-known/openid-configuration` (or RFC 8414), or uses `MCP_OAUTH_JWKS_URL` if you set it;
+- validates every token: RS256 pinned, signature against the issuer's JWKS, `exp`, `nbf`, `iss`, and **`aud` — the token must name this server**.
+
+That last check is the one that matters. Without it, a token your IdP minted for some *other* service could be replayed here. It's why `MCP_PUBLIC_URL` is required rather than inferred: the expected audience must never come from the request, because the `Host` header is set by the caller.
+
+`MCP_AUTH_TOKEN` becomes optional once an issuer is configured — an OAuth-only deployment doesn't need a shared password it never uses.
+
+> **Note on Dynamic Client Registration.** The 2026-07-28 spec deprecated DCR in favour of Client ID Metadata Documents. That change lands on authorization servers and clients; a resource server is unaffected either way, which is a good reason to delegate rather than roll your own AS.
+
+### The claude.ai connector caveat
+
+Claude's custom connector UI accepts OAuth fields only — Authorization URL, Token URL, Client ID, Client Secret. **There is no field for a static bearer token or a custom header** ([#112](https://github.com/anthropics/claude-ai-mcp/issues/112), [#411](https://github.com/anthropics/claude-ai-mcp/issues/411)). So:
+
+- **With OAuth configured**, connect it as a normal custom connector. This is the intended path.
+- **Without OAuth**, the only way in is the token-in-URL form, `/mcp/<token>`, enabled with `MCP_ALLOW_TOKEN_IN_PATH=1`. It works, but it puts a credential in a URL where proxies log it, which is why strict mode refuses it. Treat it as a workaround, not a deployment.
 
 ### Cloudflare Access (optional third auth mode)
 
@@ -286,7 +327,7 @@ WEBHOOK_PORT=3001 WEBHOOK_SECRET=your_secret node build/webhook-receiver/index.j
 ```bash
 npm install
 npm run build
-npm test          # 320 tests, mocked HTTP — no token needed
+npm test          # 354 tests, mocked HTTP — no token needed
 npm run smoke     # live CRUD walk (needs CLICKUP_API_TOKEN; creates and
                   # deletes its own sandbox in your workspace)
 ```

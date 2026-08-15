@@ -20,6 +20,7 @@
 import type * as http from 'node:http';
 import crypto from 'node:crypto';
 import { accessConfigFromEnv, verifyAccessJwt, type AccessConfig } from '../../cf-access.js';
+import { looksLikeJwt, verifyOAuthToken, type OAuthConfig } from './oauth.js';
 
 export type AuthResult =
   | { ok: true; via: string; subject?: string }
@@ -51,9 +52,12 @@ export function extractToken(
 }
 
 export interface AuthOptions {
+  /** Static shared secret. May be empty when the server is OAuth-only. */
   authToken: string;
   allowTokenInPath: boolean;
   accessConfig: AccessConfig | null;
+  /** Set when this server is an OAuth resource server. See `core/oauth.ts`. */
+  oauth: OAuthConfig | null;
 }
 
 export async function authorize(
@@ -78,11 +82,31 @@ export async function authorize(
   }
 
   const token = extractToken(req, opts.allowTokenInPath);
-  if (token && timingSafeEq(token, opts.authToken)) return { ok: true, via: 'bearer' };
 
-  if (jwtFailure) {
-    return { ok: false, reason: `Access JWT rejected (${jwtFailure}); no valid bearer token` };
+  // An OAuth access token arrives in the same header as the static secret, so the shape of the
+  // credential decides how it is checked. Only a three-segment JWT is worth a signature check;
+  // anything else can only ever be the shared secret.
+  let oauthFailure: string | null = null;
+  if (token && opts.oauth && looksLikeJwt(token)) {
+    try {
+      const id = await verifyOAuthToken(token, opts.oauth);
+      return { ok: true, via: 'oauth', subject: id.subject };
+    } catch (err) {
+      oauthFailure = err instanceof Error ? err.message : String(err);
+    }
   }
+
+  // `opts.authToken` is empty on an OAuth-only server. The `&&` matters: comparing '' to ''
+  // succeeds, so without it an unconfigured secret would authenticate an empty credential.
+  if (token && opts.authToken && timingSafeEq(token, opts.authToken)) {
+    return { ok: true, via: 'bearer' };
+  }
+
+  const notes = [
+    jwtFailure ? `Access JWT rejected (${jwtFailure})` : null,
+    oauthFailure ? `OAuth token rejected (${oauthFailure})` : null,
+  ].filter(Boolean);
+  if (notes.length) return { ok: false, reason: `${notes.join('; ')}; no valid bearer token` };
   return { ok: false, reason: token ? 'invalid bearer token' : 'no credentials presented' };
 }
 

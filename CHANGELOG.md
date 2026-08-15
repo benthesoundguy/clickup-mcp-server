@@ -6,7 +6,7 @@ A ground-up rewrite. 88 tools that mirrored ClickUp's REST API become 18 organis
 addressed by name rather than ID, with capability profiles that make the server safe to hand to
 an untrusted agent. The 3.x line is unchanged and still shipped — see *Breaking* below.
 
-Not yet run in production. Five adversarial red-team rounds, 320 tests, zero days of real use.
+Not yet run in production. Five adversarial red-team rounds, 354 tests, zero days of real use.
 
 ### Breaking
 
@@ -58,6 +58,41 @@ Not yet run in production. Five adversarial red-team rounds, 320 tests, zero day
   error appears in the conversation. HTTP mode still exits `1`, because an unattended
   deployment should fail loudly. The same applies to an unreachable ClickUp at launch, so a
   network blip no longer looks identical to a broken install.
+
+### Remote authentication
+
+- **OAuth 2.1 resource-server support.** Set `MCP_OAUTH_ISSUER` and `MCP_PUBLIC_URL` and the
+  server becomes a spec-compliant resource server: it publishes RFC 9728 Protected Resource
+  Metadata at `/.well-known/oauth-protected-resource` naming the authorization server, answers
+  unauthenticated requests with a `WWW-Authenticate` header pointing at it, discovers signing
+  keys through OIDC discovery (or RFC 8414, or an explicit `MCP_OAUTH_JWKS_URL`), and validates
+  every token with RS256 pinned plus `exp`/`nbf`/`iss`/**`aud`**.
+
+  The server is deliberately **not** an authorization server. Since the 2025-06-18 spec an MCP
+  server is a resource server and the AS "may be hosted with the resource server or a separate
+  entity" — so login, consent and token issuance are delegated to any OIDC provider. That is
+  also the durable choice: the 2026-07-28 spec deprecated Dynamic Client Registration in favour
+  of Client ID Metadata Documents, and that churn lands on authorization servers and clients,
+  never on a resource server.
+
+  Audience binding is the load-bearing check: without it, a token an IdP minted for a different
+  service could be replayed here. `MCP_PUBLIC_URL` is therefore **required** rather than
+  inferred — the expected audience must never be derived from the request, because the `Host`
+  header is set by the caller.
+
+  This matters for hosted clients specifically: claude.ai's custom connector UI accepts OAuth
+  fields only and has no field for a static bearer token, which is why the token-in-URL form
+  existed. That form remains available behind `MCP_ALLOW_TOKEN_IN_PATH=1`, but is now a
+  documented workaround rather than the only way in.
+- `MCP_AUTH_TOKEN` is optional once an issuer is configured — an OAuth-only deployment should
+  not have to keep a shared password it never uses. An empty static secret can never match an
+  empty credential; there is a test named for that, because `timingSafeEqual('', '')` is true.
+- Verification reuses `src/cf-access.ts` rather than adding a second JWT verifier. It already
+  pinned RS256, took the JWKS location from configuration rather than the token, and checked
+  exp/nbf/iss/aud — the resource-server requirements exactly. Only the identity claim is now
+  configurable (`sub` for a generic issuer, `email`/`common_name` for Cloudflare Access).
+- Plain `http` issuers are refused except on loopback, so local development against a
+  containerised IdP works without weakening anything that crosses a network.
 
 ### Compatibility
 

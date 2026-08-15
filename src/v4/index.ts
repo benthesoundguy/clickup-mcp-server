@@ -27,6 +27,14 @@ import { parseProfile, describeProfile } from './core/policy.js';
 import { resolveSandbox } from './core/localfile.js';
 import { buildStamp } from './core/version.js';
 import { loadEnvFile, envFileCandidates } from './core/env.js';
+import {
+  oauthEnv,
+  resolveOAuthConfig,
+  protectedResourceMetadata,
+  metadataPaths,
+  metadataUrl,
+  type OAuthConfig,
+} from './core/oauth.js';
 
 const DEFAULT_HTTP_HOST = '127.0.0.1';
 const DEFAULT_HTTP_PORT = 8000;
@@ -144,6 +152,26 @@ async function runCheck(): Promise<number> {
   }).length;
   out(`transport:    ${httpMode ? 'http' : 'stdio'}`);
   out(`tools:        ${toolCount}`);
+
+  // Remote auth is the hardest thing to debug from the client side, because a client that
+  // cannot authenticate usually cannot tell you why. Resolve it here, including the network
+  // round trip to the issuer, so a misconfiguration is visible before a client ever tries.
+  try {
+    const raw = oauthEnv();
+    if (!raw) {
+      out('oauth:        not configured (bearer token / Cloudflare Access only)');
+    } else {
+      const cfg = await resolveOAuthConfig(raw);
+      out(`oauth:        resource server for ${cfg.resource}`);
+      out(`              issuer   ${cfg.issuer}`);
+      out(`              keys     ${cfg.jwksUrl}`);
+      out(`              metadata ${metadataUrl(cfg.resource)}`);
+      out('              tokens must name this server in their aud claim.');
+    }
+  } catch (err) {
+    out(`oauth:        MISCONFIGURED — ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
   out();
 
   if (!token) {
@@ -274,14 +302,41 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
   const host = process.env.MCP_HTTP_HOST?.trim() || DEFAULT_HTTP_HOST;
   const port = Number(process.env.MCP_HTTP_PORT) || DEFAULT_HTTP_PORT;
 
-  const authToken = process.env.MCP_AUTH_TOKEN?.trim();
-  if (!authToken || authToken.length < 16) {
+  // Resolve OAuth first: whether a static secret is mandatory depends on whether there is
+  // another way in. Discovery talks to the issuer, so a bad issuer fails here, at boot, rather
+  // than on the first request from a real client.
+  let oauth: OAuthConfig | null = null;
+  try {
+    const raw = oauthEnv();
+    if (raw) {
+      oauth = await resolveOAuthConfig(raw);
+      log(`OAuth: resource server for ${oauth.resource}`);
+      log(`OAuth: authorization server ${oauth.issuer} (keys: ${oauth.jwksUrl})`);
+    }
+  } catch (err) {
+    for (const line of String(err instanceof Error ? err.message : err).split('\n')) {
+      log(`FATAL: ${line}`);
+    }
+    process.exit(1);
+  }
+
+  const authToken = process.env.MCP_AUTH_TOKEN?.trim() ?? '';
+  // A static secret is required only when it is the *only* way in. With an authorization
+  // server configured, demanding one as well would force every deployment to keep a shared
+  // password it does not use.
+  if (!oauth && (!authToken || authToken.length < 16)) {
     log('FATAL: MCP_AUTH_TOKEN must be set to at least 16 characters in HTTP mode.');
     log('FATAL: this server can modify your workspace. Generate one:  openssl rand -hex 24');
+    log('FATAL: or configure an authorization server with MCP_OAUTH_ISSUER + MCP_PUBLIC_URL.');
+    process.exit(1);
+  }
+  if (authToken && authToken.length < 16) {
+    log('FATAL: MCP_AUTH_TOKEN is set but shorter than 16 characters. Remove it or lengthen it.');
     process.exit(1);
   }
   const accessConfig = accessConfigFromEnv();
   const allowTokenInPath = process.env.MCP_ALLOW_TOKEN_IN_PATH === '1';
+  const prmPaths = oauth ? new Set(metadataPaths(oauth.resource)) : new Set<string>();
 
   const server = http.createServer(async (req, res) => {
     const path = (req.url ?? '').split('?')[0];
@@ -307,17 +362,30 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
       return;
     }
 
+    // RFC 9728 Protected Resource Metadata. Unauthenticated by definition: a client fetches
+    // this *because* it does not have a token yet and needs to be told where to get one.
+    if (req.method === 'GET' && prmPaths.has(path) && oauth) {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600',
+      });
+      res.end(JSON.stringify(protectedResourceMetadata(oauth)));
+      return;
+    }
+
     if (!path.startsWith('/mcp')) {
       res.writeHead(404).end();
       return;
     }
 
-    const auth = await authorize(req, { authToken, allowTokenInPath, accessConfig });
+    const auth = await authorize(req, { authToken, allowTokenInPath, accessConfig, oauth });
     if (!auth.ok) {
       log(`401 ${req.method} ${path} from ${req.socket.remoteAddress} — ${auth.reason}`);
       res.writeHead(401, {
         'Content-Type': 'application/json',
-        'WWW-Authenticate': `Bearer realm="clickup-mcp", resource_metadata="${publicOrigin(req)}/.well-known/oauth-protected-resource"`,
+        'WWW-Authenticate': `Bearer realm="clickup-mcp", resource_metadata="${
+          oauth ? metadataUrl(oauth.resource) : `${publicOrigin(req)}/.well-known/oauth-protected-resource`
+        }"`,
       });
       res.end(JSON.stringify({ error: 'unauthorized' }));
       return;

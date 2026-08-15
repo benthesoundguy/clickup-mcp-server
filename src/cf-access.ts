@@ -19,7 +19,7 @@
 import crypto from 'node:crypto';
 
 export interface AccessIdentity {
-  kind: 'user' | 'service_token';
+  kind: 'user' | 'service_token' | 'oauth';
   subject: string;
   aud: string;
   expires: string;
@@ -30,8 +30,18 @@ export interface AccessConfig {
   issuer: string;
   /** JWKS endpoint, always derived from `issuer` — never from the token. */
   certsUrl: string;
-  /** Access application AUD tag. */
+  /** Access application AUD tag, or — for a generic issuer — the canonical resource URI. */
   aud: string;
+  /**
+   * Claims to read the caller's identity from, in order of preference.
+   *
+   * Cloudflare Access is the default and carries `email` (browser login) or `common_name`
+   * (service token). A generic OIDC issuer carries `sub`. Everything above this point in the
+   * verifier — RS256 pinning, JWKS from configuration rather than the token, exp/nbf/iss/aud —
+   * is issuer-independent and is exactly what the MCP spec requires of a resource server, so
+   * the identity claim is the only thing worth making configurable.
+   */
+  subjectClaims?: string[];
 }
 
 /** Tolerance for clock drift between Cloudflare and this host. */
@@ -221,6 +231,18 @@ export async function verifyAccessJwt(token: string, cfg: AccessConfig): Promise
   const auds = Array.isArray(audClaim) ? audClaim : [audClaim];
   if (!auds.some((a) => typeof a === 'string' && a === cfg.aud)) {
     throw new AccessJwtError('aud does not include this application');
+  }
+
+  // A generic OIDC issuer identifies the caller differently from Cloudflare Access, so the
+  // claim to read is configurable. Everything that makes the token *trustworthy* is not.
+  if (cfg.subjectClaims?.length) {
+    for (const claim of cfg.subjectClaims) {
+      const v = payload[claim];
+      if (typeof v === 'string' && v) {
+        return { kind: 'oauth', subject: v, aud: cfg.aud, expires: new Date(exp * 1000).toISOString() };
+      }
+    }
+    throw new AccessJwtError(`token carries none of: ${cfg.subjectClaims.join(', ')}`);
   }
 
   // One path, two flows: a browser/OAuth login carries `email`, a service
