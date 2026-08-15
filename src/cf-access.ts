@@ -151,6 +151,16 @@ function decodeJson(segment: string): Record<string, unknown> {
 export class AccessJwtError extends Error {}
 
 /**
+ * `alg` and `kid` are read before the signature is checked, so they are fully
+ * attacker-controlled and end up in error messages that get logged. Bound their
+ * length here; the log layer separately escapes control characters.
+ */
+function quoteUntrusted(v: unknown, max = 64): string {
+  const s = String(v);
+  return s.length > max ? `${s.slice(0, max)}…(${s.length} chars)` : s;
+}
+
+/**
  * Verify a Cloudflare Access JWT. Resolves with the caller's identity, or
  * throws — there is no third outcome, and no path returns success without a
  * signature check having passed.
@@ -173,7 +183,7 @@ export async function verifyAccessJwt(token: string, cfg: AccessConfig): Promise
   // RSA→HMAC confusion attacks work: the token must not choose its own
   // verification scheme.
   if (header.alg !== 'RS256') {
-    throw new AccessJwtError(`unsupported alg ${String(header.alg)} (only RS256 is accepted)`);
+    throw new AccessJwtError(`unsupported alg ${quoteUntrusted(header.alg)} (only RS256 is accepted)`);
   }
   const kid = typeof header.kid === 'string' ? header.kid : null;
   if (!kid) throw new AccessJwtError('token header has no kid');
@@ -185,7 +195,7 @@ export async function verifyAccessJwt(token: string, cfg: AccessConfig): Promise
     keys = await getKeys(cfg, true);
     key = keys.get(kid);
   }
-  if (!key) throw new AccessJwtError(`no signing key matches kid ${kid}`);
+  if (!key) throw new AccessJwtError(`no signing key matches kid ${quoteUntrusted(kid)}`);
 
   const ok = crypto
     .createVerify('RSA-SHA256')

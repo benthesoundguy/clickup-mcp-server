@@ -31,7 +31,7 @@ import { setupReminderTools } from './tools/reminder-tools.js';
 import { setupStatusTools } from './tools/status-tools.js';
 import { setupProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
 
-const SERVER_VERSION = '3.4.0';
+const SERVER_VERSION = '3.4.1';
 
 // Transports:
 //   default                        → stdio (Claude Desktop / Claude Code local)
@@ -61,9 +61,25 @@ const STRICT_ENV = process.env.MCP_STRICT_ENV === '1';
  * such constraint and systemd expects stdout, so route it there.
  */
 const httpMode = Boolean(process.env.MCP_HTTP_PORT || process.env.MCP_TRANSPORT === 'http');
+
+/**
+ * Every log line this server writes is exactly one line, so any control
+ * character in the message came from attacker-controlled data that got
+ * interpolated. Escaping here rather than at each call site is deliberate: a
+ * red-team round found forged audit lines via JWT header fields (`alg`, `kid`)
+ * that are necessarily read *before* the signature is checked — i.e. by an
+ * unauthenticated caller. Sanitising at the chokepoint makes every present and
+ * future call site safe instead of relying on remembering.
+ */
+function oneLine(msg: string): string {
+  return msg.replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/g, (c) =>
+    `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+}
+
 const log = (msg: string) => {
-  if (httpMode) process.stdout.write(msg + '\n');
-  else process.stderr.write(msg + '\n');
+  const line = oneLine(msg) + '\n';
+  if (httpMode) process.stdout.write(line);
+  else process.stderr.write(line);
 };
 
 /**
@@ -173,12 +189,16 @@ const allowTokenInPath = STRICT_ENV
   : true;
 
 function extractToken(req: http.IncomingMessage): string | undefined {
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) return auth.slice(7).trim();
+  // RFC 7235: the auth-scheme is case-insensitive, and one-or-more spaces or
+  // tabs may separate it from the credential. Matching `Bearer ` literally
+  // rejected `bearer <token>` — failing closed, but wrongly, and a client
+  // sending the lowercase form would have looked like a bad credential.
+  const fromHeader = /^Bearer[ \t]+(.+)$/i.exec(req.headers.authorization ?? '');
+  if (fromHeader) return fromHeader[1].trim();
   if (!allowTokenInPath) return undefined;
   // Path form: /mcp/<token>
-  const m = (req.url ?? '').split('?')[0].match(/^\/mcp\/([^/]+)\/?$/);
-  return m?.[1];
+  const fromPath = (req.url ?? '').split('?')[0].match(/^\/mcp\/([^/]+)\/?$/);
+  return fromPath?.[1];
 }
 
 const accessConfig = accessConfigFromEnv();

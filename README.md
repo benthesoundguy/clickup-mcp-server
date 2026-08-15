@@ -6,9 +6,9 @@
   <a href="https://github.com/modelcontextprotocol/typescript-sdk"><img src="https://img.shields.io/badge/MCP%20SDK-1.x-orange" alt="MCP SDK"></a>
 </p>
 
-A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **88 tools covering 148 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation), and is exercised by 94 unit tests plus a 108-step live test suite.**
+A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **88 tools covering 148 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation), and is exercised by 96 unit tests plus a 108-step live test suite.**
 
-This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). Current version **3.4.0** — see [CHANGELOG.md](CHANGELOG.md) for the full history.
+This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). Current version **3.4.1** — see [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 Much of what's here was found by pointing an adversarial agent at a throwaway workspace and telling it to break things. Three rounds of that produced ~50 defects; the ones that were ours are fixed, and the ones that are ClickUp's are documented below rather than hidden.
 
@@ -213,7 +213,7 @@ git clone https://github.com/benthesoundguy/clickup-mcp-server
 cd clickup-mcp-server
 npm install
 npm run build
-npm test          # 94 unit tests (mocked HTTP — no token needed)
+npm test          # 96 unit tests (mocked HTTP — no token needed)
 npm run smoke     # 108-step live CRUD walk (needs CLICKUP_API_TOKEN; creates
                   # and deletes its own sandbox in your workspace)
 ```

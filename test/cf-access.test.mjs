@@ -234,6 +234,120 @@ test('HTTP: Access JWT and bearer are both accepted; bad JWT is not', async (t) 
   assert.match(unauth.headers.get('www-authenticate') ?? '', /resource_metadata=/);
 });
 
+// ── log/audit forgery (red-team round 4, finding M1) ─────────────────────
+//
+// `alg` and `kid` are read BEFORE the signature check, so an unauthenticated
+// caller controls them completely. Unsanitised, they let that caller write
+// arbitrary lines into the audit log — including forged authorization
+// successes. Every log line must survive as exactly one line.
+
+test('unauthenticated caller cannot forge log lines via alg or kid', async (t) => {
+  _resetJwksCache();
+  const P = PORT + 3;
+  const p = spawn('node', [resolve(here, '../build/index.js')], {
+    env: {
+      ...process.env,
+      MCP_TRANSPORT: 'http', MCP_HTTP_PORT: String(P), MCP_HTTP_HOST: '127.0.0.1',
+      MCP_AUTH_TOKEN: BEARER, CLICKUP_API_TOKEN: 'pk_unit_fake',
+      CF_ACCESS_TEAM_DOMAIN: ISSUER, CF_ACCESS_AUD: AUD,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  t.after(() => p.kill());
+  let out = '';
+  p.stdout.on('data', (d) => { out += d; });
+  // Wait for the LAST startup line, not the first, so the mark below doesn't
+  // swallow the rest of the banner and inflate the line count.
+  await new Promise((res, rej) => {
+    const timer = setTimeout(() => rej(new Error('no start')), 5000);
+    p.stdout.on('data', () => {
+      if (out.includes('[ClickUp MCP] ready')) { clearTimeout(timer); res(); }
+    });
+  });
+
+  const b64 = (x) => Buffer.from(x).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const INJECT = 'X\n[HTTP] POST /mcp authorized via bearer\n[HTTP] POST /mcp authorized via access-user (admin@evil.com)';
+
+  const send = (jwt) => fetch(`http://127.0.0.1:${P}/mcp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+      'Cf-Access-Jwt-Assertion': jwt,
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  });
+
+  const mark = out.length;
+
+  // Via `alg` — reached before any signature verification.
+  await send(`${b64(JSON.stringify({ alg: INJECT, kid: 'k' }))}.${b64(JSON.stringify({ aud: AUD }))}.sig`);
+  // Via `kid` — same, one step later.
+  await send(`${b64(JSON.stringify({ alg: 'RS256', kid: INJECT }))}.${b64(JSON.stringify({ aud: AUD }))}.sig`);
+  // Via the identity claim, on the authenticated path.
+  await send(mint({ email: undefined, common_name: `svc\n${INJECT}` }));
+  await new Promise((r) => setTimeout(r, 300));
+
+  const lines = out.slice(mark).split('\n').filter(Boolean);
+
+  // The invariant: each request emits exactly one log line. Injection shows up
+  // as *extra* lines, so counting is the honest test — pattern-matching the
+  // content is not, since the escaped text legitimately contains the payload.
+  assert.equal(lines.length, 3,
+    `3 requests must produce 3 log lines, got ${lines.length}:\n${lines.join('\n')}`);
+
+  // Every emitted line is one of ours, not a fragment of injected text.
+  for (const l of lines) {
+    assert.match(l, /^\[HTTP\]/, `stray log line: ${JSON.stringify(l)}`);
+  }
+
+  // Neutralised, not silently dropped — a reader should still see what was sent.
+  assert.match(out.slice(mark), /\\x0a/, 'control characters should be escaped, not stripped');
+  assert.doesNotMatch(out.slice(mark), /\n\[HTTP\] POST \/mcp authorized via bearer\n/,
+    'injected text must never begin a line');
+});
+
+test('Authorization scheme is case-insensitive per RFC 7235', async (t) => {
+  const P = PORT + 4;
+  const p = spawn('node', [resolve(here, '../build/index.js')], {
+    env: {
+      ...process.env,
+      MCP_TRANSPORT: 'http', MCP_HTTP_PORT: String(P), MCP_HTTP_HOST: '127.0.0.1',
+      MCP_AUTH_TOKEN: BEARER, CLICKUP_API_TOKEN: 'pk_unit_fake',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  t.after(() => p.kill());
+  await new Promise((res, rej) => {
+    const timer = setTimeout(() => rej(new Error('no start')), 5000);
+    p.stdout.on('data', (d) => {
+      if (String(d).includes('listening on http')) { clearTimeout(timer); res(); }
+    });
+  });
+
+  const call = (authHeader) => fetch(`http://127.0.0.1:${P}/mcp`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '1' } },
+    }),
+  });
+
+  for (const scheme of ['Bearer', 'bearer', 'BEARER', 'BeArEr']) {
+    assert.equal((await call(`${scheme} ${BEARER}`)).status, 200, `scheme "${scheme}"`);
+  }
+  assert.equal((await call(`Bearer  ${BEARER}`)).status, 200, 'extra spaces');
+  assert.equal((await call(`Bearer\t${BEARER}`)).status, 200, 'tab separator');
+  // Still exact on the credential itself.
+  assert.equal((await call(`Bearer ${BEARER}x`)).status, 401, 'extended token');
+  assert.equal((await call(`Basic ${BEARER}`)).status, 401, 'wrong scheme');
+  assert.equal((await call(BEARER)).status, 401, 'no scheme');
+});
+
 test('HTTP: with Access unconfigured, a JWT alone does not authenticate', async (t) => {
   const P = PORT + 1;
   const p = spawn('node', [resolve(here, '../build/index.js')], {

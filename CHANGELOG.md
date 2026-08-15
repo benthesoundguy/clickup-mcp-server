@@ -1,5 +1,50 @@
 # Changelog
 
+## 3.4.1 — 2026-08-15
+
+Fixes from a red-team round against the 3.4.0 auth layer. The round found no
+bypass — 39/39 signature-matrix cases, 500/500 byte-mutants, and every hostile
+JWKS response were rejected, and all nine cells of the credential matrix held.
+These are the two real defects it did find.
+
+### Fixed
+- **Log/audit forgery from an unauthenticated caller (Medium).** `alg` and `kid`
+  are read from the JWT header *before* the signature is checked, so they are
+  fully attacker-controlled, and they reached the log unsanitised. A newline
+  inside them let anyone who could reach the origin write arbitrary audit
+  lines — including forged `authorized via bearer` and
+  `authorized via access-user (admin@…)` successes. Reproduced: one request,
+  two forged authorization records.
+
+  Fixed at the chokepoint rather than the call sites: `log()` now escapes all
+  C0/C1 control characters plus U+2028/U+2029 to `\xNN`. Every log line this
+  server writes is one line by construction, so anything else came from
+  interpolated data. `alg` and `kid` are additionally length-bounded at source.
+
+  Worth noting how this was missed: the identity claim (`email`/`common_name`)
+  *was* flagged and considered low-severity because it is admin-sourced and
+  post-signature. The header fields sit earlier in the same function, need no
+  valid signature at all, and were not considered. Sanitising per-call-site
+  would have fixed the vector that was thought of and left the ones that
+  weren't — hence the chokepoint.
+- **`Authorization: bearer <token>` was rejected (Low).** RFC 7235 makes the
+  auth-scheme case-insensitive; the check matched `Bearer ` literally. It failed
+  closed, so this was never a security hole — but a client using the lowercase
+  form would have looked like it was presenting a bad credential. Now matched
+  case-insensitively, with one-or-more spaces or tabs allowed as the separator.
+  The credential itself is still compared exactly, length-checked and in
+  constant time.
+
+### Not changed
+- **Float `exp` is accepted.** RFC 7519 NumericDate permits a fractional value.
+  Not a bypass.
+- **`/health` reports the build stamp unauthenticated.** Deliberate — it is how
+  version skew gets diagnosed, and it exposes nothing else.
+- **A valid bearer still waits out the 5s JWKS timeout** when a JWT is present
+  and the JWKS is hanging. Bounded and rare (a hanging JWKS means Access itself
+  is degraded), and evaluating bearer first would cost the Access identity in
+  the audit log. A circuit breaker is the fix if this ever matters.
+
 ## 3.4.0 — 2026-08-15
 
 Third authentication mode: Cloudflare Access JWT validation.
