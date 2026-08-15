@@ -87,6 +87,24 @@ describe('policy: matching is segment-exact', () => {
     assert.ok(!matches(p, 'DELETE', '/task/abc/comment'));
   });
 
+  test('encoded separators cannot smuggle a denied path past an allowlist', () => {
+    // `/list/1%2Ftask%2Fvictim/task` reads as 3 segments to us and possibly 5 at the origin.
+    // When the two readings can differ, the safe answer is no. This ALLOWed before the fix.
+    assert.ok(checkPolicy(POLICIES.agent, 'POST', '/list/1%2Ftask%2Fvictim/task'));
+    assert.equal(checkPolicy(POLICIES.agent, 'POST', '/list/1/task'), null, 'plain create still works');
+  });
+
+  test('encoded separators cannot evade a denylist either', () => {
+    assert.ok(checkPolicy(POLICIES.core, 'POST', '/team/9001%2Fuser'),
+      'deny rules are tested against the decoded form too');
+  });
+
+  test('a legitimately encoded value is still allowed where the profile permits writes', () => {
+    // A tag literally named "a/b" arrives as a%2Fb. `core` allows writes broadly, so this must
+    // not be collateral damage from the anti-smuggling rule.
+    assert.equal(checkPolicy(POLICIES.core, 'POST', '/task/x/tag/a%2Fb'), null);
+  });
+
   test('query strings never affect the decision', () => {
     assert.equal(checkPolicy(POLICIES.read, 'GET', '/team/9001/task'), null);
     assert.ok(checkPolicy(POLICIES.read, 'POST', '/list/1/task?foo=bar'));

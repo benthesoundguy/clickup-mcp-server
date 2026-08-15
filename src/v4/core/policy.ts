@@ -164,25 +164,67 @@ export const POLICIES: Record<Profile, WritePolicy> = {
  * Called on every request, including uploads. Returns `null` when permitted, or the error the
  * agent should see.
  */
+/** `%2F` / `%5C` — an encoded path separator hiding inside what looks like one segment. */
+const ENCODED_SEPARATOR = /%(?:2f|5c)/i;
+
+/**
+ * Decode one layer of percent-encoding per segment.
+ *
+ * Used only to re-test *deny* rules: if a segment decodes into something containing a
+ * separator, an attacker may be relying on the origin normalising the path differently than we
+ * do, so the denied form must be checked as well as the literal one.
+ */
+function decodedForm(path: string): string {
+  return path
+    .split('/')
+    .map((seg) => {
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        return seg;
+      }
+    })
+    .join('/');
+}
+
 export function checkPolicy(
   policy: WritePolicy,
   method: string,
   path: string,
 ): ClickUpToolError | null {
   const m = method.toUpperCase();
+  // Compare deny rules against both the literal path and its decoded form. Otherwise
+  // `/team/9001%2Fuser` could sail past a rule written for `/team/*/user` on any origin that
+  // normalises before routing.
+  const decoded = decodedForm(path);
+  const denied = (rules: Pattern[]) =>
+    rules.some((p) => matches(p, m, path) || matches(p, m, decoded));
 
   if (m === 'GET') {
-    if (policy.denyReads.some((p) => matches(p, m, path))) {
+    if (denied(policy.denyReads)) {
       return blocked(policy, m, path, 'reading that is outside this profile');
     }
     return null;
   }
 
-  if (policy.denyWrites.some((p) => matches(p, m, path))) {
+  if (denied(policy.denyWrites)) {
     return blocked(policy, m, path, 'that administrative change is outside this profile');
   }
 
   if (policy.allowWrites === 'all') return null;
+
+  // An allowlisted profile must never grant a path whose segment boundaries are ambiguous.
+  // `/list/1%2Ftask%2Fvictim/task` reads as three segments here and possibly as five at the
+  // origin; when those two readings can differ, the safe answer is no. Nothing legitimate on
+  // the append allowlist takes a segment containing an encoded separator — they are all IDs.
+  if (ENCODED_SEPARATOR.test(path)) {
+    return blocked(
+      policy,
+      m,
+      path,
+      'the path contains an encoded separator, so its segment boundaries are ambiguous',
+    );
+  }
 
   if (policy.allowWrites.some((p) => matches(p, m, path))) return null;
 
