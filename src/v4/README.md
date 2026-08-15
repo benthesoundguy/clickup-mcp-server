@@ -3,6 +3,46 @@
 18 tools that take human names, on the branch `v4-rebuild`. Feature-complete against v3's 88.
 v3 still lives in `src/` and is untouched.
 
+## Capability profiles
+
+One binary, four profiles, chosen with `MCP_PROFILE`. Install once; add a client entry per
+profile and enable whichever a given agent should have.
+
+| `MCP_PROFILE` | tools | schema | can |
+|---|---|---|---|
+| `read` | 11 | 2,228 tok | observe. **No write of any kind can leave the process.** |
+| `agent` | 13 | 2,808 tok | observe + **append**: create tasks, comments, chat messages, checklist items, time logs, attachments |
+| `core` | 16 | 4,121 tok | everything a normal user does — no membership or webhook administration |
+| `full` (default) | 18 | 4,739 tok | unrestricted |
+
+**`agent` is the interesting one**: it can *add* but cannot alter or delete anything that
+already exists. Point an unattended agent at it and the worst it can do is create clutter.
+
+That guarantee is enforced in three layers, and only the third is a security boundary:
+
+1. **Tool filtering** — which tools appear (tokens + tool selection)
+2. **Action filtering** — which actions a tool advertises (tokens + honesty)
+3. **`core/policy.ts`** — an allowlist checked on every request, *including uploads*, before
+   anything is sent. ← **the guarantee**
+
+Layers 1 and 2 depend on every tool being tagged correctly forever. Layer 3 does not: it
+inspects the outgoing request, so a mistagged tool or a new endpoint cannot widen a profile.
+`test/v4-profiles.test.mjs` proves this by calling `core`-only handlers *directly* with an
+`agent` context — bypassing layers 1 and 2 entirely — and asserting nothing reaches the wire.
+
+Matching is segment-exact, never prefix-based, because ClickUp distinguishes
+`POST /list/{id}/task` (create — allowed) from `POST /list/{id}/task/{id}` (**move** — not)
+by one trailing segment.
+
+Things that are additive but still excluded from `agent`, deliberately: attaching a tag,
+setting a custom field and adding a dependency all mutate an *existing* task; creating a
+webhook starts streaming your data to an external endpoint. Append-only and safe are not the
+same property.
+
+**Known rough edge:** under `read`, `comment(task, text)` silently degrades to reading rather
+than announcing that posting is unavailable. It never posts and never claims to have — the
+reply is plainly a comment listing — but it does not say why.
+
 ## Why
 
 v3 mirrors the ClickUp REST API one endpoint per tool. Measured against the live API on
@@ -116,6 +156,7 @@ Stdio by default. For HTTP:
 | `MCP_TRANSPORT=http` / `MCP_HTTP_PORT` | Serve streamable HTTP (default `127.0.0.1:8000`). |
 | `MCP_AUTH_TOKEN` | **Required in HTTP mode**, ≥16 chars. |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | Enable Cloudflare Access JWT validation. |
+| `MCP_PROFILE` | `read` \| `agent` \| `core` \| `full` (default). |
 | `CLICKUP_WORKSPACE_ID` | Optional; discovered automatically. |
 | `CLICKUP_API_BASE` | Point at a stub. Tests only. |
 
@@ -136,7 +177,7 @@ and an invalid JWT never vetoes a valid bearer token.
 
 ## Tests
 
-`npm test` — 218 tests, of which 96 are v3's. The v4 suite is offline: a stubbed fetch and a
+`npm test` — 275 tests, of which 96 are v3's. The v4 suite is offline: a stubbed fetch and a
 stubbed clock, so it never spends the real rate budget.
 
 - `v4-core.test.mjs` — resolver, errors, dates, text, formatting, rate governor
@@ -145,6 +186,7 @@ stubbed clock, so it never spends the real rate budget.
 - `v4-budget.test.mjs` — **fails the build if the token budgets regress**
 - `v4-http.test.mjs` — transport and auth end to end
 - `v4-extended.test.mjs` — the long tail, including every membership-write confirmation gate
+- `v4-profiles.test.mjs` — the capability boundary, including the bypass test
 
 ## Verification status
 

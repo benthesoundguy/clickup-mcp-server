@@ -21,7 +21,9 @@ import {
   SERVER_VERSION,
   allTools,
 } from './server.js';
+import { toolsFor } from './tools/profiles.js';
 import { accessConfigFromEnv, authorize, publicOrigin } from './core/auth.js';
+import { parseProfile, describeProfile } from './core/policy.js';
 
 const DEFAULT_HTTP_HOST = '127.0.0.1';
 const DEFAULT_HTTP_PORT = 8000;
@@ -68,8 +70,17 @@ async function main(): Promise<void> {
 
   // One context for the whole process: the workspace index, status cache and rate governor
   // are all per-token state that must outlive any single request.
+  let profile;
+  try {
+    profile = parseProfile(process.env.MCP_PROFILE);
+  } catch (err) {
+    log(`FATAL: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+
   const ctx = buildContext({
     token,
+    profile,
     workspaceId: process.env.CLICKUP_WORKSPACE_ID?.trim() || undefined,
     log,
   });
@@ -77,7 +88,8 @@ async function main(): Promise<void> {
   try {
     const id = await discoverWorkspaceId(ctx);
     (ctx as { workspaceId: string }).workspaceId = id;
-    log(`workspace ${id} · ${allTools.length} tools · v${SERVER_VERSION}`);
+    log(`workspace ${id} · v${SERVER_VERSION}`);
+    log(`profile: ${describeProfile(profile)}`);
   } catch (err) {
     log(`FATAL: could not reach ClickUp: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
@@ -117,7 +129,8 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
           ok: true,
           name: 'clickup-mcp-v4',
           version: SERVER_VERSION,
-          tools: allTools.length,
+          profile: ctx.profile,
+          tools: toolsFor(allTools, ctx.profile, (t) => t).length,
           build: buildStamp(),
         }),
       );

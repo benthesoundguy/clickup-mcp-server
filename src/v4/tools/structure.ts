@@ -7,8 +7,9 @@
 
 import { z } from 'zod';
 import type { Ctx, ToolDef } from './registry.js';
-import { ClickUpToolError, unresolved } from '../core/errors.js';
+import { ClickUpToolError, isPolicyDenial, unresolved } from '../core/errors.js';
 import { renderTable } from '../core/format.js';
+import { describeProfile } from '../core/policy.js';
 
 export const treeTool: ToolDef = {
   name: 'tree',
@@ -209,7 +210,9 @@ export const listsTool: ToolDef = {
         const folder = await ctx.resolver.folder(parentRaw);
         created = await ctx.http.post(`/folder/${folder.id}/list`, { name }, `folder ${folder.name}`);
         where = `${folder.spaceName}/${folder.name}`;
-      } catch {
+      } catch (err) {
+        // A policy refusal must not be mistaken for "this parent is a space, not a folder".
+        if (isPolicyDenial(err)) throw err;
         const space = await ctx.resolver.space(parentRaw);
         created = await ctx.http.post(`/space/${space.id}/list`, { name }, `space ${space.name}`);
         where = space.name;
@@ -298,6 +301,7 @@ export const whoamiTool: ToolDef = {
     const rate = stats.rate;
 
     const lines = [
+      `profile: ${describeProfile(ctx.profile)}`,
       `user: ${me.username} <${me.email}> (${me.id})`,
       `workspace: ${idx.workspaceName} (${idx.workspaceId})`,
       `structure: ${idx.spaces.length} spaces, ${idx.folders.length} folders, ${idx.lists.length} lists`,

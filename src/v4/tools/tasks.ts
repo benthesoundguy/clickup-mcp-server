@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import type { Ctx, ToolDef } from './registry.js';
 import { qs } from '../core/http.js';
-import { badValue, ClickUpToolError, unresolved } from '../core/errors.js';
+import { badValue, ClickUpToolError, isPolicyDenial, unresolved } from '../core/errors.js';
 import { parseDate, parseDueWindow } from '../core/dates.js';
 import {
   renderTaskDetail,
@@ -592,6 +592,8 @@ export const createTool: ToolDef = {
         );
         created.push(shapeTask(raw, 'compact'));
       } catch (err) {
+        // A capability refusal applies to the whole call, not to this one item.
+        if (isPolicyDenial(err)) throw err;
         failures.push(
           `- ${String(specs[i].name)}: ${err instanceof ClickUpToolError ? err.message : String(err)}`,
         );
@@ -712,6 +714,7 @@ export const updateTool: ToolDef = {
           await ctx.http.delete(`/task/${encodeURIComponent(id)}`, `task ${id}`);
           done.push(id);
         } catch (err) {
+          if (isPolicyDenial(err)) throw err;
           failed.push(`- ${id}: ${err instanceof ClickUpToolError ? err.message : String(err)}`);
         }
       }
@@ -802,6 +805,7 @@ export const updateTool: ToolDef = {
         }
         updated.push(shapeTask(raw, 'compact'));
       } catch (err) {
+        if (isPolicyDenial(err)) throw err;
         failed.push(`- ${id}: ${err instanceof ClickUpToolError ? err.message : String(err)}`);
       }
     }

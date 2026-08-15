@@ -17,6 +17,7 @@
  */
 
 import { fromApiError, ClickUpToolError, type RequestContext } from './errors.js';
+import { checkPolicy, POLICIES, type WritePolicy } from './policy.js';
 
 export interface Clock {
   now(): number;
@@ -39,6 +40,8 @@ export interface HttpOptions {
   timeoutMs?: number;
   maxRetries?: number;
   onLog?: (msg: string) => void;
+  /** Capability profile. Defaults to unrestricted. */
+  policy?: WritePolicy;
 }
 
 export interface RateState {
@@ -64,6 +67,7 @@ export class ClickUpHttp {
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly onLog: (msg: string) => void;
+  private readonly policy: WritePolicy;
 
   private rate: RateState = { limit: null, remaining: null, resetAt: null };
   /** Serialises the governor's wait decision so concurrent calls can't both spend the last slot. */
@@ -82,6 +86,7 @@ export class ClickUpHttp {
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.onLog = opts.onLog ?? (() => {});
+    this.policy = opts.policy ?? POLICIES.full;
   }
 
   rateState(): RateState {
@@ -123,6 +128,10 @@ export class ClickUpHttp {
    */
   async upload<T>(path: string, form: FormData, subject?: string): Promise<T> {
     const ctx: RequestContext = { method: 'POST', path, subject };
+    // Uploads are a separate code path, so they need the same gate — this is exactly the sort
+    // of second door that makes per-call-site enforcement unreliable.
+    const denied = checkPolicy(this.policy, 'UPLOAD', stripQuery(path));
+    if (denied) throw denied;
     const url = `${this.baseUrl}/v2${path.startsWith('/') ? path : `/${path}`}`;
     await this.awaitBudget();
 
@@ -173,6 +182,10 @@ export class ClickUpHttp {
     version: 'v2' | 'v3' = 'v2',
   ): Promise<T> {
     const ctx: RequestContext = { method, path, subject };
+    // The capability boundary. Checked before anything is sent, so a blocked request never
+    // reaches ClickUp and never spends rate budget.
+    const denied = checkPolicy(this.policy, method, stripQuery(path));
+    if (denied) throw denied;
     const url = `${this.baseUrl}/${version}${path.startsWith('/') ? path : `/${path}`}`;
 
     let attempt = 0;
@@ -316,6 +329,10 @@ function numHeader(h: Headers, name: string): number | null {
   if (v === null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function stripQuery(p: string): string {
+  return p.split('?')[0];
 }
 
 /** Build a query string, dropping empties and expanding arrays into ClickUp's `k[]=` form. */

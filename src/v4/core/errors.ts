@@ -17,6 +17,13 @@ export interface ErrorParts {
   candidates?: string[];
   /** Machine-ish origin, for debugging. Never the primary message. */
   origin?: string;
+  /**
+   * Set for refusals that are structural rather than per-item — currently capability-profile
+   * denials. These must never be swallowed into a partial-failure report: "3 of 4 succeeded"
+   * reads as a transient ClickUp problem, when the truth is that this connection is not
+   * permitted to do it at all and retrying will never help.
+   */
+  code?: 'policy';
 }
 
 /**
@@ -29,6 +36,7 @@ export class ClickUpToolError extends Error {
   readonly fix?: string;
   readonly candidates?: string[];
   readonly origin?: string;
+  readonly code?: 'policy';
 
   constructor(parts: ErrorParts) {
     super(parts.what);
@@ -36,6 +44,7 @@ export class ClickUpToolError extends Error {
     this.fix = parts.fix;
     this.candidates = parts.candidates;
     this.origin = parts.origin;
+    this.code = parts.code;
   }
 
   toolMessage(): string {
@@ -166,6 +175,11 @@ function parseErrorBody(body: unknown): { err?: string; ecode?: string } {
     };
   }
   return {};
+}
+
+/** True when an error is a capability-profile refusal rather than a data problem. */
+export function isPolicyDenial(err: unknown): boolean {
+  return err instanceof ClickUpToolError && err.code === 'policy';
 }
 
 /**

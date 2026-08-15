@@ -6,18 +6,21 @@
  * so no tool has to remember to format its own failures.
  */
 
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ClickUpHttp, type Clock } from './core/http.js';
 import { TtlCache } from './core/cache.js';
 import { Resolver } from './core/resolve.js';
 import { ClickUpToolError } from './core/errors.js';
-import type { Ctx, ToolDef } from './tools/registry.js';
+import type { Ctx, ToolDef, Restriction } from './tools/registry.js';
+import { POLICIES, describeProfile, type Profile } from './core/policy.js';
+import { toolsFor } from './tools/profiles.js';
 import { taskTools } from './tools/tasks.js';
 import { structureTools } from './tools/structure.js';
 import { extraTools } from './tools/extras.js';
 import { extendedTools } from './tools/extended.js';
 
-export const SERVER_VERSION = '4.1.0';
+export const SERVER_VERSION = '4.2.0';
 
 export const allTools: ToolDef[] = [
   ...taskTools,
@@ -31,6 +34,8 @@ const MAX_RESPONSE_CHARS = 60_000;
 
 export interface BuildOptions {
   token: string;
+  /** Capability profile. Defaults to `full`. */
+  profile?: Profile;
   /** Override the API root. Exists so tests can point at a stub instead of the live API. */
   baseUrl?: string;
   workspaceId?: string;
@@ -50,6 +55,7 @@ export function buildContext(opts: BuildOptions): Ctx {
   const log = opts.log ?? (() => {});
   const http = new ClickUpHttp({
     token: opts.token,
+    policy: POLICIES[opts.profile ?? 'full'],
     baseUrl: opts.baseUrl ?? process.env.CLICKUP_API_BASE?.trim() ?? undefined,
     clock: opts.clock,
     fetchImpl: opts.fetchImpl,
@@ -63,6 +69,7 @@ export function buildContext(opts: BuildOptions): Ctx {
     resolver,
     cache,
     workspaceId,
+    profile: opts.profile ?? 'full',
     now: opts.now ?? Date.now,
     log,
   };
@@ -90,6 +97,26 @@ export function buildServerWithContext(ctx: Ctx): McpServer {
   return assemble(ctx);
 }
 
+/**
+ * Narrow a tool's schema for a profile.
+ *
+ * Omitted keys are simply absent, so the model never sees an argument it cannot use; the
+ * `action` enum is rebuilt from the permitted subset, so the schema tells the truth about what
+ * this connection can do rather than advertising actions that would be refused.
+ */
+function narrow(tool: ToolDef, r: Restriction): ToolDef {
+  const schema: Record<string, unknown> = { ...tool.schema };
+  for (const key of r.omit ?? []) delete schema[key];
+  if (r.actions?.length && schema.action) {
+    schema.action = z.enum(r.actions as [string, ...string[]]);
+  }
+  return {
+    ...tool,
+    schema: schema as ToolDef['schema'],
+    description: r.note ? `${tool.description} — ${r.note}` : tool.description,
+  };
+}
+
 export function buildServer(opts: BuildOptions): BuiltServer {
   const ctx = buildContext(opts);
   return { server: assemble(ctx), ctx };
@@ -105,11 +132,12 @@ function assemble(ctx: Ctx): McpServer {
         'assignees are usernames or "me"; statuses are the words shown in ClickUp. ' +
         'Start with `tree` to see what exists and `meta` to see what values a list accepts. ' +
         'Unresolvable names raise an error listing the valid options rather than returning ' +
-        'an empty result.',
+        'an empty result. ' +
+        `Capability profile: ${describeProfile(ctx.profile)}.`,
     },
   );
 
-  for (const tool of allTools) {
+  for (const tool of toolsFor(allTools, ctx.profile, narrow)) {
     server.tool(tool.name, tool.description, tool.schema, async (args: unknown) => {
       try {
         const text = await tool.handler((args ?? {}) as Record<string, unknown>, ctx);

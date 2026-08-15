@@ -52,7 +52,7 @@ const PRIORITY_NAMES: Record<string, string> = {
 
 export function shapeTask(raw: RawTask, detail: Detail = 'compact'): ShapedTask {
   const out: ShapedTask = {
-    id: raw.id,
+    id: raw.id ?? '',
     name: decodeEntities(raw.name ?? ''),
     status: raw.status?.status ?? '',
     assignees: (raw.assignees ?? []).map((a) => a.username || a.email || String(a.id)),
@@ -152,15 +152,22 @@ export function renderTaskTable(
     { key: 'name', get: (t) => t.name },
   ];
 
+  // Never assume a getter returned a string: ClickUp answers some endpoints with `200 {}`,
+  // and a TypeError out of the renderer is a much worse failure than a blank cell.
+  const cell = (c: { get: (t: ShapedTask) => string }, t: ShapedTask): string => {
+    const v = c.get(t);
+    return typeof v === 'string' ? v : v == null ? '' : String(v);
+  };
+
   const active = cols.filter(
-    (c) => !hide.has(c.key) && tasks.some((t) => c.get(t).trim() !== ''),
+    (c) => !hide.has(c.key) && tasks.some((t) => cell(c, t).trim() !== ''),
   );
 
   const lines: string[] = [];
   if (opts.header) lines.push(opts.header);
   lines.push(active.map((c) => c.key).join('\t'));
   for (const t of tasks) {
-    lines.push(active.map((c) => sanitizeCell(c.get(t))).join('\t'));
+    lines.push(active.map((c) => sanitizeCell(cell(c, t))).join('\t'));
   }
 
   if (opts.truncated) {
@@ -220,11 +227,11 @@ export function renderTable(
   header?: string,
 ): string {
   if (!rows.length) return header ? `${header}\n(nothing found)` : '(nothing found)';
-  const active = columns.filter((c) => rows.some((r) => (r[c] ?? '').trim() !== ''));
+  const active = columns.filter((c) => rows.some((r) => String(r[c] ?? '').trim() !== ''));
   const lines: string[] = [];
   if (header) lines.push(header);
   lines.push(active.join('\t'));
-  for (const r of rows) lines.push(active.map((c) => sanitizeCell(r[c] ?? '')).join('\t'));
+  for (const r of rows) lines.push(active.map((c) => sanitizeCell(String(r[c] ?? ''))).join('\t'));
   return lines.join('\n');
 }
 
