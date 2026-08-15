@@ -128,3 +128,52 @@ src/v4/
 Wonder → discovery → build → red-team → repeat. Iteration 1 is core + `find`/`task`/`create`/
 `update`/`tree`/`meta`/`whoami`; iteration 2 the rest; iteration 3+ is adversarial testing
 driving the changes. Findings land in the ClickUp "ClickUp MCP v5" list as they come up.
+
+---
+
+# Results
+
+Four iterations. **186 tests pass.**
+
+| Goal | Baseline | Target | **Actual** | |
+|---|---|---|---|---|
+| **G1** tool schemas | 18,603 tok | ≤ 4,000 | **2,811 tok** | ✅ −84.9% |
+| **G2** 100-task list | 42,619 tok | ≤ 1,500 | **736 tok** | ✅ −98.3% |
+| **G3** tool count | 88 | ≤ 14 | **12** | ✅ |
+| **G4** name-first addressing | — | names everywhere | ✅ | index `3+S`, cached |
+| **G5** no silent wrong answers | — | always error | ✅ | 5 classes closed |
+| **G6** errors teach | — | every error | ✅ | asserted in tests |
+| **G7** rate-limit safety | none | adaptive | ✅ | stub-clock tested |
+| **G8** coverage | — | core workflows | ✅ | all 12 live-verified |
+| **G9** tests | 96 | all green | **186** | ✅ |
+
+A "show me my tasks" turn: **~61,000 tokens → ~3,500.**
+
+## What live probing found that nothing else would have
+
+Every real bug was found by **reading state back from the live API after a write**. None would
+have been caught by the type checker, by unit tests against mocks, or by re-reading the code —
+in each case a mock returns 200 and the test passes.
+
+1. **`move_to` reported success while the task never moved.** ClickUp's public API cannot move
+   a task between lists: `POST /list/{dest}/task/{id}` returns `200 {}` and no-ops without the
+   "Tasks in Multiple Lists" ClickApp, `PUT` with `list_id` is silently ignored, `/move` 404s.
+   The tool printed the *old list name* one line below the word "moved".
+2. **`find` reported a page size as a total** — "100 matches" after fetching one page of many.
+3. **The delete confirmation quoted a stale cached count** — the one number in an irreversible
+   prompt that must not be a guess.
+4. **Status validation against space defaults falsely rejected `blocked`**, a status four real
+   tasks were in. Lists override their space constantly; the fix was free because the folder
+   index already carries every list's statuses.
+5. **`resolveScope` rewrote "matches 4 lists" into "matches nothing"** — error-wrapping turning
+   a correct answer into a false one.
+
+**The rule:** *a 200 is not a result.* Verify writes whose effect the endpoint doesn't
+guarantee; report only counts actually established; never mock away the thing you're least
+sure of, because that's exactly what a stub will cheerfully confirm.
+
+## Not done
+
+`users_*`/`guests_*` (they mutate billing seats), goals, portfolios, chat, webhooks,
+templates, views — all still served by v3. No CI. Custom-field *writes* are untested against
+real field types (this workspace defines none). **v4 is not deployed**; v3.4.1 still runs.
