@@ -6,9 +6,9 @@
   <a href="https://github.com/modelcontextprotocol/typescript-sdk"><img src="https://img.shields.io/badge/MCP%20SDK-1.x-orange" alt="MCP SDK"></a>
 </p>
 
-A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **88 tools covering 148 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation), and is exercised by 68 unit tests plus a 108-step live test suite.**
+A Model Context Protocol (MCP) server giving AI assistants a verified, honest ClickUp integration: **88 tools covering 148 operations — every one of which maps to a live ClickUp endpoint (or a clearly-labeled local computation), and is exercised by 94 unit tests plus a 108-step live test suite.**
 
-This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). Current version **3.2.0** — see [CHANGELOG.md](CHANGELOG.md) for the full history.
+This is a heavily renovated fork of [nsxdavid/clickup-mcp-server](https://github.com/nsxdavid/clickup-mcp-server). Current version **3.4.0** — see [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 Much of what's here was found by pointing an adversarial agent at a throwaway workspace and telling it to break things. Three rounds of that produced ~50 defects; the ones that were ours are fixed, and the ones that are ClickUp's are documented below rather than hidden.
 
@@ -77,6 +77,30 @@ in the path: `/mcp/<token>` — the form claude.ai's connector UI needs).
 | `MCP_STRICT_ENV` | off | **Set to `1` for servers** — see below. |
 | `MCP_ALLOW_TOKEN_IN_PATH` | off in strict | Re-enables the `/mcp/<token>` URL form under strict mode. |
 | `MCP_NO_ENV_FILE` | off | Disables the `.env` file lookup (implied by strict mode). |
+| `CF_ACCESS_TEAM_DOMAIN` | — | Cloudflare Access team (`myteam`, `myteam.cloudflareaccess.com`, or a full URL). Enables Access JWT validation. |
+| `CF_ACCESS_AUD` | — | Access application AUD tag. Required alongside the team domain — neither alone enables anything. |
+| `MCP_PUBLIC_URL` | derived | Public origin used in the `WWW-Authenticate` discovery hint. |
+
+#### Cloudflare Access (optional third auth mode)
+
+Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` and the server validates the
+`Cf-Access-Jwt-Assertion` header Access puts on every request it forwards: RS256
+against the team JWKS, plus `exp`, `iss`, and `aud`. Both Access flows validate
+through one path — a browser/OAuth login carries `email`, a service token
+carries `common_name`.
+
+This is defence in depth. A request that reaches the origin *without* passing
+through Access — a tunnel misconfiguration, a second ingress, something on the
+host's network — cannot impersonate an Access-authenticated caller. It fails
+closed: `alg` is pinned to RS256 (so `alg: none` and HS256 confusion are
+rejected), an unreachable JWKS denies rather than bypasses, and the JWKS URL
+comes from configuration, never from the token.
+
+**Bearer auth keeps working.** A request is authorized by a valid Access JWT *or*
+a valid bearer token, so header-capable agents need no changes.
+
+The origin does **not** serve `/.well-known/oauth-*` — with Managed OAuth
+enabled, Access is the authorization server and serves discovery at the edge.
 
 #### Strict mode (`MCP_STRICT_ENV=1`)
 
@@ -189,7 +213,7 @@ git clone https://github.com/benthesoundguy/clickup-mcp-server
 cd clickup-mcp-server
 npm install
 npm run build
-npm test          # 68 unit tests (mocked HTTP — no token needed)
+npm test          # 94 unit tests (mocked HTTP — no token needed)
 npm run smoke     # 108-step live CRUD walk (needs CLICKUP_API_TOKEN; creates
                   # and deletes its own sandbox in your workspace)
 ```

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { accessConfigFromEnv, verifyAccessJwt } from './cf-access.js';
 import { setupTaskTools } from './tools/task-tools.js';
 import { setupDocTools } from './tools/doc-tools.js';
 import { setupSpaceTools } from './tools/space-tools.js';
@@ -30,7 +31,7 @@ import { setupReminderTools } from './tools/reminder-tools.js';
 import { setupStatusTools } from './tools/status-tools.js';
 import { setupProjectIntelligenceTools } from './tools/project-intelligence-tools.js';
 
-const SERVER_VERSION = '3.3.2';
+const SERVER_VERSION = '3.4.0';
 
 // Transports:
 //   default                        → stdio (Claude Desktop / Claude Code local)
@@ -180,6 +181,66 @@ function extractToken(req: http.IncomingMessage): string | undefined {
   return m?.[1];
 }
 
+const accessConfig = accessConfigFromEnv();
+
+/**
+ * Public origin for discovery hints. Prefer explicit config; otherwise trust the
+ * proxy's forwarded headers. Host is client-controllable, so this is only ever
+ * used to build an advisory URL — never for an auth decision.
+ */
+function publicOrigin(req: http.IncomingMessage): string {
+  if (process.env.MCP_PUBLIC_URL) return process.env.MCP_PUBLIC_URL.replace(/\/+$/, '');
+  const pick = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim();
+  // Fall back to what this connection actually is, rather than assuming TLS —
+  // a proxy that terminates TLS sends x-forwarded-proto, and one that doesn't
+  // is genuinely serving plain HTTP.
+  const proto = pick(req.headers['x-forwarded-proto'])
+    ?? ((req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http');
+  const host = pick(req.headers['x-forwarded-host']) ?? req.headers.host ?? 'localhost';
+  return `${proto}://${host}`;
+}
+
+type AuthResult =
+  | { ok: true; via: string; subject?: string }
+  | { ok: false; reason: string };
+
+/**
+ * Two independent ways in, both of which must actually prove something:
+ *   1. a Cloudflare Access JWT (`Cf-Access-Jwt-Assertion`), covering both the
+ *      OAuth/browser flow and service tokens;
+ *   2. the bearer token, for agents that can set headers.
+ *
+ * An invalid JWT never authenticates — the only success path runs through a
+ * verified signature. It also does not veto a caller holding a valid bearer
+ * token, because Access injects this header on every request it forwards, so a
+ * transient JWKS or clock problem would otherwise lock out clients that
+ * presented a second, perfectly good credential.
+ */
+async function authorize(req: http.IncomingMessage, authToken: string): Promise<AuthResult> {
+  const header = req.headers['cf-access-jwt-assertion'];
+  const jwt = Array.isArray(header) ? header[0] : header;
+  let jwtFailure: string | null = null;
+
+  if (jwt) {
+    if (!accessConfig) {
+      jwtFailure = 'CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD not configured';
+    } else {
+      try {
+        const id = await verifyAccessJwt(jwt, accessConfig);
+        return { ok: true, via: `access-${id.kind}`, subject: id.subject };
+      } catch (err) {
+        jwtFailure = err instanceof Error ? err.message : String(err);
+      }
+    }
+  }
+
+  const token = extractToken(req);
+  if (token && timingSafeEq(token, authToken)) return { ok: true, via: 'bearer' };
+
+  if (jwtFailure) return { ok: false, reason: `Access JWT rejected (${jwtFailure}); no valid bearer token` };
+  return { ok: false, reason: token ? 'invalid bearer token' : 'no credentials presented' };
+}
+
 async function runHttp(host: string, port: number, authToken: string) {
   const httpServer = http.createServer(async (req, res) => {
     // Health probe (no auth, no data). /health is the monitoring contract;
@@ -197,13 +258,20 @@ async function runHttp(host: string, port: number, authToken: string) {
       return;
     }
 
-    const token = extractToken(req);
-    if (!token || !timingSafeEq(token, authToken)) {
-      console.error(`[HTTP] 401 ${req.method} from ${req.socket.remoteAddress} (${token ? 'bad token' : 'no token'})`);
-      res.writeHead(401, { 'Content-Type': 'application/json' });
+    const auth = await authorize(req, authToken);
+    if (!auth.ok) {
+      log(`[HTTP] 401 ${req.method} ${urlPath} from ${req.socket.remoteAddress} — ${auth.reason}`);
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        // RFC 9728: point unauthenticated MCP clients at resource metadata.
+        // Harmless when Access fronts this and answers first; it is the whole
+        // discovery hint when nothing does.
+        'WWW-Authenticate': `Bearer realm="clickup-mcp", resource_metadata="${publicOrigin(req)}/.well-known/oauth-protected-resource"`,
+      });
       res.end(JSON.stringify({ error: 'unauthorized' }));
       return;
     }
+    log(`[HTTP] ${req.method} ${urlPath} authorized via ${auth.via}${auth.subject ? ` (${auth.subject})` : ''}`);
 
     try {
       // Stateless mode: fresh server+transport per request. No session state
@@ -230,6 +298,12 @@ async function runHttp(host: string, port: number, authToken: string) {
     log(`[ClickUp MCP] v${SERVER_VERSION} listening on http://${host}:${port} (streamable HTTP, stateless, bearer auth)`);
     log(`[ClickUp MCP] ${buildStamp()} · node ${process.version} · ${process.arch}/${process.platform}`);
     log(`[ClickUp MCP] strict env mode: ${STRICT_ENV ? 'ON (env-only secrets, no local state)' : 'off'}`);
+    if (accessConfig) {
+      log(`[ClickUp MCP] Cloudflare Access: ON · iss ${accessConfig.issuer} · aud ${accessConfig.aud.slice(0, 8)}…`);
+      log('[ClickUp MCP] accepted credentials: Access JWT (user or service token) OR bearer token');
+    } else {
+      log('[ClickUp MCP] Cloudflare Access: off (set CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD to enable) · bearer token only');
+    }
     log('[ClickUp MCP] ready');
   });
 

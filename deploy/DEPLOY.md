@@ -112,19 +112,44 @@ picks it up automatically.
 
 The app's bearer check always runs. The question is what sits in front of it.
 
-| Edge policy | Your own agents | claude.ai connector (and mobile) |
-|---|---|---|
-| **Tunnel only** | ✅ Bearer header | ✅ token-in-path |
-| **+ Access, service tokens** | ✅ send `CF-Access-Client-*` | ❌ **blocked — cannot send Access headers** |
-| **+ Access, bypass rule for the hostname** | ✅ | ✅ |
+| Edge policy | Your own agents | Claude Code | claude.ai web/mobile connector |
+|---|---|---|---|
+| **Tunnel only** | ✅ Bearer header | ✅ | ✅ token-in-path |
+| **+ Access, service tokens** | ✅ `CF-Access-Client-*` | ✅ | ❌ cannot send Access headers |
+| **+ Access, Managed OAuth** | ✅ | ✅ | ⚠️ **reported broken — see below** |
+| **+ Access, bypass for the hostname** | ✅ | ✅ | ✅ |
+
+### Managed OAuth and the claude.ai connector
+
+Managed OAuth makes Access the OAuth authorization server, and it **serves
+discovery at the edge** — the origin does not implement `/.well-known/oauth-*`.
+Claude Code works against this.
+
+The **claude.ai web and mobile connector is reported not to**. Per
+[anthropics/claude-ai-mcp#410](https://github.com/anthropics/claude-ai-mcp/issues/410),
+Access's pre-auth response omits the `WWW-Authenticate` header that RFC 9728 and
+the MCP auth spec require. Claude Code recovers by probing
+`/.well-known/oauth-protected-resource` as a fallback; the claude.ai connector
+does not, and fails before any login screen appears. **The issue is closed as
+not planned** — there is no fix on either side.
+
+Probing this deployment on 2026-08-15 was consistent with that report: an
+unauthenticated `POST /mcp` returned **403 with an HTML error page and no
+`WWW-Authenticate` header**.
+
+So if claude.ai/mobile access matters, plan for the two-hostname split below
+rather than expecting Managed OAuth to cover it.
 
 Cloudflare Access is the stronger posture and is worth having if only your own
 infrastructure calls this. But it **cannot coexist with the claude.ai connector
 on the same hostname**. If you want both, the usual arrangement is two
 hostnames pointing at the same tunnel:
 
-- `mcp-internal.YOURDOMAIN.com` — Access service-token policy, header auth
+- `mcp-internal.YOURDOMAIN.com` — Access policy (service tokens or Managed
+  OAuth), header auth. Set `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD` so the
+  origin validates `Cf-Access-Jwt-Assertion` too.
 - `mcp.YOURDOMAIN.com` — Access bypass, path-token auth for claude.ai
+  (`MCP_ALLOW_TOKEN_IN_PATH=1`).
 
 Both still pass the app's bearer check, so the token remains the last line
 regardless of what the edge does.
@@ -169,3 +194,7 @@ curl -s http://127.0.0.1:8000/health
   more than one agent has the token.
 - ClickUp's ~100 req/min limit is **per token**, so every client behind this
   endpoint shares one budget.
+- With `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD` set, the origin independently
+  verifies Access's JWT, so a request reaching the origin outside the tunnel
+  cannot impersonate an Access-authenticated caller. Validation fails closed and
+  pins `alg` to RS256. Set both or neither — one alone enables nothing.

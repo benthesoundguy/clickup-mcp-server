@@ -1,5 +1,46 @@
 # Changelog
 
+## 3.4.0 — 2026-08-15
+
+Third authentication mode: Cloudflare Access JWT validation.
+
+### Added
+- **`Cf-Access-Jwt-Assertion` validation.** Access signs a JWT onto every
+  request it forwards; the origin now verifies it. RS256 signature against the
+  team's JWKS (`https://<team>/cdn-cgi/access/certs`, cached 10 min), plus
+  `exp`, `nbf`, `iss`, and that `aud` contains the configured application tag.
+  New vars: `CF_ACCESS_TEAM_DOMAIN` (bare team name, hostname, or URL) and
+  `CF_ACCESS_AUD`. Both must be set or the header is not trusted at all.
+- **Both Access flows validate through one path.** A browser/OAuth login carries
+  `email`; a service token carries `common_name`. Either satisfies the check and
+  the resolved identity is logged, so requests are attributable.
+- **Bearer auth is unchanged and still works.** A request is authorized by a
+  valid Access JWT *or* a valid bearer token, so header-capable agents (n8n,
+  Claude Code, curl) need no changes.
+- `WWW-Authenticate` on 401s carrying RFC 9728 `resource_metadata`, and
+  `MCP_PUBLIC_URL` to pin the origin used to build that hint.
+
+### Security properties
+- **Fails closed.** The only path returning success runs through a verified
+  signature. An unreachable JWKS, an unknown `kid`, or any claim failure denies;
+  a fetch failure can serve a cached key set but never skips verification.
+- **`alg` is pinned to RS256.** `alg: none` and HS256-with-the-public-key
+  confusion are both rejected — the token does not get to choose how it is
+  verified. Covered by tests, not just by intent.
+- The JWKS URL is derived from configuration only, never from the token.
+- Unknown-`kid` refreshes are rate-limited so forged kids cannot be used to make
+  the origin hammer Cloudflare.
+- An invalid JWT never authenticates, but does not veto a caller holding a valid
+  bearer token — Access injects the header on every forwarded request, so a
+  clock or key-rotation blip would otherwise lock out clients presenting a
+  second, valid credential.
+
+### Note on OAuth discovery
+The origin does **not** need to serve `/.well-known/oauth-*`. With Managed OAuth
+enabled, Access acts as the authorization server and serves discovery at the
+edge. See `deploy/DEPLOY.md` §5 for the caveat about which clients can actually
+complete that flow.
+
 ## 3.3.2 — 2026-08-15
 
 Deploy tooling only. No runtime changes.
