@@ -190,22 +190,27 @@ export const findTool: ToolDef = {
     const shaped: ShapedTask[] = shown.map((t) => shapeTask(t, detail));
 
     // --- header ------------------------------------------------------------
-    const parts = [`${filtered.length}${filtered.length > shown.length ? '' : ''} match`];
-    let header = `${headerBits.join(' · ')} — ${filtered.length} match${filtered.length === 1 ? '' : 'es'}`;
-    if (shown.length < filtered.length) header += `, showing ${shown.length}`;
-    void parts;
+    // The match count must never overstate what was actually established. When paging stopped
+    // early, `filtered.length` is a floor, not a total — reporting it as "100 matches" would
+    // be an unverified number presented as fact.
+    const exact = exhausted;
+    const countLabel = exact
+      ? `${filtered.length} match${filtered.length === 1 ? '' : 'es'}`
+      : `${filtered.length}+ matches (more exist beyond the pages fetched)`;
 
-    // Honesty about coverage. Client-side filtering only saw what was actually fetched, so
-    // saying "3 matches" without saying "out of 400 scanned" would overstate the answer.
+    let header = `${headerBits.join(' · ')} — ${countLabel}`;
+    if (shown.length < filtered.length) header += `, showing ${shown.length}`;
+
+    // Client-side filtering only saw what was fetched, so a bare "3 matches" would overstate
+    // the answer without saying how much was actually searched.
     if (needAll) {
       header += ` (scanned ${scanned} task${scanned === 1 ? '' : 's'}`;
-      header += exhausted ? ', complete)' : `, HIT PAGE LIMIT — more exist beyond this)`;
+      header += exhausted ? ', complete)' : ', HIT PAGE LIMIT)';
     }
 
     const hide = scopedListId ? ['list'] : [];
     const body = renderTaskTable(shaped, {
       header,
-      truncated: !exhausted && !needAll && filtered.length > shown.length,
       hideColumns: hide,
     });
 
@@ -483,7 +488,14 @@ export const updateTool: ToolDef = {
   schema: {
     ids: z.array(z.string()).describe('Task IDs (from `find`)'),
     ...taskSpecShape,
-    move_to: z.string().optional().describe('Destination list name/path/ID'),
+    move_to: z
+      .string()
+      .optional()
+      .describe(
+        'Destination list. NOTE: ClickUp\'s API cannot move tasks unless the "Tasks in ' +
+          'Multiple Lists" ClickApp is enabled; the move is verified and the call fails ' +
+          'loudly if it did not take.',
+      ),
     delete: z.boolean().optional().describe('Delete the tasks. Irreversible.'),
     remove_assignees: z.array(z.string()).optional().describe('Usernames to unassign'),
   },
@@ -540,10 +552,15 @@ export const updateTool: ToolDef = {
 
     const updated: ShapedTask[] = [];
     const failed: string[] = [];
+    const notMoved: string[] = [];
     for (const id of ids) {
       try {
         if (destListId) {
-          // ClickUp moves via a dedicated endpoint; a plain PUT will not relocate a task.
+          // There is no working "move task" in the ClickUp public API. Verified 2026-08-15:
+          // POST /list/{dest}/task/{id} returns 200 {} and does nothing unless the "Tasks in
+          // Multiple Lists" ClickApp is on; PUT /task/{id} with list_id is silently ignored;
+          // /move 404s on v2 and v3. So attempt it, then *read the task back* and believe the
+          // API's answer rather than its status code.
           await ctx.http.post(
             `/list/${destListId}/task/${encodeURIComponent(id)}`,
             {},
@@ -553,10 +570,40 @@ export const updateTool: ToolDef = {
         const raw = Object.keys(body).length
           ? await ctx.http.put<RawTask>(`/task/${encodeURIComponent(id)}`, body, `task ${id}`)
           : await ctx.http.get<RawTask>(`/task/${encodeURIComponent(id)}`, `task ${id}`);
+
+        if (destListId) {
+          const landed = await ctx.http.get<RawTask>(
+            `/task/${encodeURIComponent(id)}`,
+            `task ${id}`,
+          );
+          if (landed.list?.id !== destListId) {
+            notMoved.push(id);
+            updated.push(shapeTask(landed, 'compact'));
+            continue;
+          }
+          updated.push(shapeTask(landed, 'compact'));
+          continue;
+        }
         updated.push(shapeTask(raw, 'compact'));
       } catch (err) {
         failed.push(`- ${id}: ${err instanceof ClickUpToolError ? err.message : String(err)}`);
       }
+    }
+
+    if (notMoved.length) {
+      // Reporting "moved" here would be a confident lie, which is the one thing this server
+      // is built not to do. Fail the whole call rather than bury it in a footnote.
+      throw new ClickUpToolError({
+        what:
+          `${notMoved.length} task${notMoved.length === 1 ? ' was' : 's were'} NOT moved to ` +
+          `${destPath}: ${notMoved.join(', ')}. Any other field changes in this call were applied.`,
+        fix:
+          'ClickUp\'s public API cannot move a task between lists. The endpoint returns HTTP 200 ' +
+          'and silently does nothing. Either enable the "Tasks in Multiple Lists" ClickApp in ' +
+          'ClickUp settings (which makes this endpoint work), move the task in the ClickUp UI, ' +
+          'or recreate it in the destination and delete the original — noting that recreating ' +
+          'gives it a new ID and loses its comments and history.',
+      });
     }
 
     const what = destPath ? `updated + moved to ${destPath}` : 'updated';

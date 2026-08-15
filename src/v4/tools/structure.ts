@@ -218,7 +218,24 @@ export const listsTool: ToolDef = {
           ? await ctx.resolver.folder(targetRaw)
           : await ctx.resolver.list(targetRaw);
       const label = 'path' in l ? l.path : `${l.spaceName}/${l.name}`;
-      const count = 'taskCount' in l && l.taskCount !== undefined ? ` (${l.taskCount} tasks)` : '';
+
+      // Count live rather than trusting the cached index. This is the confirmation prompt for
+      // an irreversible action, and the index's task_count has been observed disagreeing with
+      // what the list actually contains — the one number here that must not be a guess.
+      let count = '';
+      if (kind === 'list') {
+        try {
+          const res = await ctx.http.get<{ tasks?: unknown[] }>(
+            `/list/${l.id}/task?include_closed=true`,
+            `list ${label}`,
+          );
+          const n = res.tasks?.length ?? 0;
+          count = ` (${n === 100 ? '100+' : n} task${n === 1 ? '' : 's'})`;
+        } catch {
+          count = ' (task count unavailable)';
+        }
+      }
+
       throw new ClickUpToolError({
         what: `Deleting ${kind} ${label}${count} would destroy everything in it, permanently.`,
         fix: 'Re-run with confirm: true if that is genuinely intended.',
