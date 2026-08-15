@@ -26,9 +26,13 @@ import { accessConfigFromEnv, authorize, publicOrigin } from './core/auth.js';
 import { parseProfile, describeProfile } from './core/policy.js';
 import { resolveSandbox } from './core/localfile.js';
 import { buildStamp } from './core/version.js';
+import { loadEnvFile, envFileCandidates } from './core/env.js';
 
 const DEFAULT_HTTP_HOST = '127.0.0.1';
 const DEFAULT_HTTP_PORT = 8000;
+
+// Before anything reads process.env — including the transport decision on the next line.
+const envFile = loadEnvFile({ moduleUrl: import.meta.url });
 
 const httpMode = Boolean(process.env.MCP_HTTP_PORT || process.env.MCP_TRANSPORT === 'http');
 
@@ -52,15 +56,131 @@ const log = (msg: string) => {
   else process.stderr.write(line);
 };
 
-async function main(): Promise<void> {
+/**
+ * What to tell someone whose server will not start.
+ *
+ * This is the single most-read string in the project: it is what a first-time install shows
+ * when the token has not been found. It names every place the server looked, so "I put it in a
+ * .env" and "the server did not see your .env" can be told apart without reading the source.
+ */
+function missingTokenMessage(): string {
+  const looked = envFileCandidates(import.meta.url)
+    .map((p) => `      ${p}`)
+    .join('\n');
+  const suppressed =
+    process.env.MCP_NO_ENV_FILE === '1' || process.env.MCP_STRICT_ENV === '1'
+      ? '\n  NOTE: .env lookup is DISABLED here by MCP_STRICT_ENV/MCP_NO_ENV_FILE, so the token ' +
+        'must come from the environment.\n'
+      : '';
+  return (
+    'ClickUp MCP is not configured: CLICKUP_API_TOKEN is not set.\n' +
+    suppressed +
+    '\nSet it in either place:\n' +
+    '\n  1. Your MCP client config, which is usually easiest:\n' +
+    '       "env": { "CLICKUP_API_TOKEN": "pk_..." }\n' +
+    '\n  2. A .env file containing  CLICKUP_API_TOKEN=pk_...\n' +
+    '     The server looked for one here, in order:\n' +
+    looked +
+    '\n\nGet a token from ClickUp → Settings → Apps → API Token. It starts with "pk_".\n' +
+    'Then run the built server with --check to confirm it is picked up.'
+  );
+}
+
+/**
+ * `--check`: answer "why doesn't it work?" without needing the client, the logs, or this source.
+ *
+ * Prints every input the server resolved and then actually talks to ClickUp. Never prints the
+ * token — a support transcript should be safe to paste into an issue.
+ */
+async function runCheck(): Promise<number> {
+  const out = (line = '') => process.stdout.write(`${line}\n`);
   const token = process.env.CLICKUP_API_TOKEN?.trim();
-  if (!token) {
-    log('FATAL: CLICKUP_API_TOKEN is not set. Get a personal token from ClickUp → Settings → Apps.');
-    process.exit(1);
+
+  out(`ClickUp MCP v${SERVER_VERSION}`);
+  out(`  ${buildStamp()}`);
+  out(`  node ${process.version} · ${process.arch}/${process.platform}`);
+  out();
+
+  if (envFile.source) {
+    out(`config file:  ${envFile.source}`);
+    out(`              applied: ${envFile.applied.join(', ') || '(nothing usable)'}`);
+  } else if (process.env.MCP_NO_ENV_FILE === '1' || process.env.MCP_STRICT_ENV === '1') {
+    out('config file:  lookup disabled (MCP_STRICT_ENV / MCP_NO_ENV_FILE)');
+  } else {
+    out('config file:  none found. Looked in:');
+    for (const c of envFileCandidates(import.meta.url)) out(`                ${c}`);
   }
 
-  // One context for the whole process: the workspace index, status cache and rate governor
-  // are all per-token state that must outlive any single request.
+  // Shape only, never the value: enough to spot "I pasted the wrong thing", nothing more.
+  out(
+    `token:        ${
+      token ? `present (${token.slice(0, 3)}… ${token.length} chars)` : 'MISSING'
+    }`,
+  );
+  if (token && !token.startsWith('pk_')) {
+    out('              WARNING: personal ClickUp tokens start with "pk_".');
+  }
+
+  let profile;
+  try {
+    profile = parseProfile(process.env.MCP_PROFILE);
+  } catch (err) {
+    out(`profile:      INVALID — ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+  out(`profile:      ${describeProfile(profile)}`);
+
+  let attachRoot: string | null = null;
+  try {
+    attachRoot = await resolveSandbox(process.env.CLICKUP_ATTACH_ROOT);
+    out(`attach root:  ${attachRoot ?? 'not set'}`);
+  } catch (err) {
+    out(`attach root:  INVALID — ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+
+  const toolCount = toolsFor(allTools, profile, (t) => t, {
+    hasSandbox: attachRoot !== null,
+  }).length;
+  out(`transport:    ${httpMode ? 'http' : 'stdio'}`);
+  out(`tools:        ${toolCount}`);
+  out();
+
+  if (!token) {
+    out(missingTokenMessage());
+    return 1;
+  }
+
+  out('contacting ClickUp…');
+  const ctx = buildContext({ token, profile, attachRoot, log: () => {} });
+  try {
+    const id = await discoverWorkspaceId(ctx);
+    (ctx as { workspaceId: string }).workspaceId = id;
+    const me = await ctx.resolver.me();
+    const idx = await ctx.resolver.index();
+    const rate = ctx.http.stats().rate;
+    out(`  user:       ${me.username} <${me.email}>`);
+    out(`  workspace:  ${idx.workspaceName} (${idx.workspaceId})`);
+    out(`  structure:  ${idx.spaces.length} spaces, ${idx.folders.length} folders, ${idx.lists.length} lists`);
+    out(`  rate budget: ${rate.remaining ?? '?'}/${rate.limit ?? '?'}`);
+    out();
+    out('OK — the server is configured correctly.');
+    return 0;
+  } catch (err) {
+    out(`  FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    out();
+    out('The token was found but ClickUp rejected it or could not be reached.');
+    out('Check that the token is current (ClickUp → Settings → Apps) and that this machine');
+    out('has network access to api.clickup.com.');
+    return 1;
+  }
+}
+
+async function main(): Promise<void> {
+  if (process.argv.slice(2).some((a) => a === '--check' || a === '--doctor')) {
+    process.exit(await runCheck());
+  }
+
   let profile;
   try {
     profile = parseProfile(process.env.MCP_PROFILE);
@@ -79,6 +199,31 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  if (envFile.source) {
+    log(`config: ${envFile.applied.join(', ') || 'nothing'} from ${envFile.source}`);
+  }
+
+  const token = process.env.CLICKUP_API_TOKEN?.trim();
+
+  // No token. In HTTP mode that is a deployment fault and dying loudly is right. In stdio mode
+  // the process is being supervised by a desktop client that shows a crash as "server
+  // disconnected" and buries the reason in a log file — so start, register the tools, and let
+  // the first tool call deliver the explanation into the conversation where it will be read.
+  if (!token) {
+    const why = missingTokenMessage();
+    if (httpMode) {
+      for (const line of why.split('\n')) log(`FATAL: ${line}`);
+      process.exit(1);
+    }
+    log('NOT CONFIGURED: CLICKUP_API_TOKEN is not set — tools will report how to fix it.');
+    const ctx = buildContext({ token: '', profile, attachRoot, configError: why, log });
+    await buildServerWithContext(ctx).connect(new StdioServerTransport());
+    log('ready (stdio, unconfigured)');
+    return;
+  }
+
+  // One context for the whole process: the workspace index, status cache and rate governor
+  // are all per-token state that must outlive any single request.
   const ctx = buildContext({
     token,
     profile,
@@ -100,8 +245,19 @@ async function main(): Promise<void> {
           : 'attachments: unconfined local reads (set CLICKUP_ATTACH_ROOT to restrict)',
     );
   } catch (err) {
-    log(`FATAL: could not reach ClickUp: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    const detail = err instanceof Error ? err.message : String(err);
+    // Same reasoning as the missing token: in stdio mode, dying here means a network blip at
+    // launch looks identical to a broken install. Start, and say so on first use.
+    if (httpMode) {
+      log(`FATAL: could not reach ClickUp: ${detail}`);
+      process.exit(1);
+    }
+    log(`NOT READY: could not reach ClickUp: ${detail}`);
+    (ctx as { configError?: string }).configError =
+      `Could not reach ClickUp when this server started: ${detail}\n` +
+      'Fix: check that CLICKUP_API_TOKEN is current (ClickUp → Settings → Apps) and that this ' +
+      'machine can reach api.clickup.com, then restart the MCP server. Run the server with ' +
+      '--check to test the connection directly.';
   }
 
   if (!httpMode) {

@@ -48,6 +48,27 @@ Not yet run in production. Five adversarial red-team rounds, 320 tests, zero day
   usually an old process still running.
 - `GET /health` reports the active profile, the tool count that profile actually exposes, and
   the attachment root.
+- **`--check` (also `npm run check`)** — prints every input the server resolved (which `.env`
+  was found and what it applied, whether the token is present and the right shape, profile,
+  tool count, Node version, build stamp), then connects to ClickUp and reports the identity and
+  rate budget. Never prints the token, so its output is safe to paste into an issue.
+- **A missing token no longer kills the server in stdio mode.** It starts, registers its tools,
+  and answers every call with what is wrong and how to fix it. A desktop MCP client shows a
+  startup crash as "server disconnected" and puts the reason in a log file nobody opens; a tool
+  error appears in the conversation. HTTP mode still exits `1`, because an unattended
+  deployment should fail loudly. The same applies to an unreachable ClickUp at launch, so a
+  network blip no longer looks identical to a broken install.
+
+### Compatibility
+
+- **`.env` files are read again.** v3 looked in `<cwd>/.env`, `<install>/.env` and
+  `<install>/../.env`; v4 initially read only `process.env`, so upgrading silently lost the
+  token. Restored, with the same search order, plus a split precedence: the **token** from the
+  file outranks the environment (a rotation should take effect even when a desktop client has
+  cached a stale copy), while **every other key only fills a gap**. If a `.env` outranked
+  explicit configuration, a file left in a working directory could widen `MCP_PROFILE` — a
+  capability escalation via the filesystem. `MCP_STRICT_ENV=1` / `MCP_NO_ENV_FILE=1` disable
+  the lookup entirely.
 
 ### Fixed
 

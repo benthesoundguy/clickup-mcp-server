@@ -17,6 +17,13 @@ export interface Ctx {
    * separate boundary that covers it.
    */
   attachRoot: string | null;
+  /**
+   * Set when the server started without usable configuration (currently: no API token, in
+   * stdio mode only). Every tool refuses with this message instead of the process exiting
+   * before it could explain itself — an MCP client shows a tool error in the conversation, but
+   * shows a startup crash only in a log file the user has to go find.
+   */
+  configError?: string;
   now: () => number;
   log: (msg: string) => void;
 }

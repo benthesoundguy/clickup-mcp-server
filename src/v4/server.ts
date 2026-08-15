@@ -51,6 +51,8 @@ export interface BuildOptions {
    * from the `agent` profile. See `core/localfile.ts`.
    */
   attachRoot?: string | null;
+  /** Start in a degraded mode where every tool reports this instead of running. */
+  configError?: string;
 }
 
 export interface BuiltServer {
@@ -78,6 +80,7 @@ export function buildContext(opts: BuildOptions): Ctx {
     workspaceId,
     profile: opts.profile ?? DEFAULT_PROFILE,
     attachRoot: opts.attachRoot ?? null,
+    configError: opts.configError,
     now: opts.now ?? Date.now,
     log,
   };
@@ -150,6 +153,11 @@ function assemble(ctx: Ctx): McpServer {
     hasSandbox: ctx.attachRoot !== null,
   })) {
     server.tool(tool.name, tool.description, tool.schema, async (args: unknown) => {
+      // A misconfigured server answers every call with the reason, so the problem appears in
+      // the conversation rather than in a log file.
+      if (ctx.configError) {
+        return { content: [{ type: 'text' as const, text: ctx.configError }], isError: true };
+      }
       try {
         const text = await tool.handler((args ?? {}) as Record<string, unknown>, ctx);
         const capped =

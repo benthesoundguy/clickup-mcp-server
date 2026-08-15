@@ -18,31 +18,79 @@ A Model Context Protocol server for ClickUp, built around two ideas:
 
 ## Quick start
 
+Get a token from **ClickUp → Settings → Apps → API Token** (it starts with `pk_`). The workspace is discovered automatically — there is nothing else to configure.
+
+**No install:**
+
+```json
+{
+  "mcpServers": {
+    "clickup": {
+      "command": "npx",
+      "args": ["-y", "github:benthesoundguy/clickup-mcp-server"],
+      "env": { "CLICKUP_API_TOKEN": "pk_your_token_here" }
+    }
+  }
+}
+```
+
+**Or from a clone**, which is what you want if you plan to change anything:
+
 ```bash
 git clone https://github.com/benthesoundguy/clickup-mcp-server
 cd clickup-mcp-server
-npm install
-npm run build
+npm install          # builds automatically
+npm run check        # verifies the token and connects — do this before wiring up a client
 ```
-
-Add to your MCP client configuration:
 
 ```json
 {
   "mcpServers": {
     "clickup": {
       "command": "node",
-      "args": ["/path/to/clickup-mcp-server/build/v4/index.js"],
-      "env": {
-        "CLICKUP_API_TOKEN": "YOUR_API_TOKEN",
-        "MCP_PROFILE": "core"
-      }
+      "args": ["/absolute/path/to/clickup-mcp-server/build/v4/index.js"],
+      "env": { "CLICKUP_API_TOKEN": "pk_your_token_here" }
     }
   }
 }
 ```
 
-Get your token from **ClickUp Settings → Apps → API Token**. The workspace is discovered automatically — there is nothing else to configure.
+### Where that block goes
+
+The shape above works as-is in **Claude Desktop**, **Claude Code**, **Cursor**, **Cline**, and **Windsurf** — they all use the `mcpServers` key. Two clients differ:
+
+- **VS Code** (`.vscode/mcp.json`) uses `servers` instead of `mcpServers`. Same inner shape. Copying a Cursor config unchanged is the most common setup mistake.
+- **Zed** (`settings.json`) uses `context_servers`, and nests the command:
+  ```json
+  { "context_servers": { "clickup": { "command": { "path": "node", "args": ["/path/to/build/v4/index.js"] } } } }
+  ```
+
+**Claude Code** can skip the file entirely:
+
+```bash
+claude mcp add clickup --env CLICKUP_API_TOKEN=pk_... -- npx -y github:benthesoundguy/clickup-mcp-server
+```
+
+### Putting the token in a file instead
+
+If you would rather not paste a token into a client config — desktop apps rewrite those files and can persist a stale copy — put it in a `.env` next to the install and omit the `env` block entirely:
+
+```bash
+echo 'CLICKUP_API_TOKEN=pk_your_token_here' > .env
+```
+
+The server looks in `<cwd>/.env`, `<install>/.env`, and `<install>/../.env`, in that order, and says which one it used at startup. The token from the file **outranks** the environment, so rotating it in one place actually takes effect. Every other setting works the other way round — an explicit value in your client config always wins, so a stray `.env` can never widen `MCP_PROFILE`. Set `MCP_STRICT_ENV=1` on a server to switch the whole lookup off.
+
+### When it doesn't work
+
+```bash
+npm run check          # from a clone
+node build/v4/index.js --check
+```
+
+This prints every input the server resolved — which `.env` it found and what it applied, whether the token is present and the right shape, the active profile and tool count, the Node version and build stamp — and then actually connects to ClickUp and reports who you are and your rate budget. It never prints the token, so the output is safe to paste into an issue.
+
+If the token is missing, the server does **not** die silently in stdio mode. It starts, registers its tools, and every call answers with what's wrong and how to fix it, so the problem shows up in your conversation rather than in a log file you have to go find. (In HTTP mode it still exits `1` — an unattended deployment should fail loudly.)
 
 ## Capability profiles
 

@@ -13,6 +13,7 @@
     "dev": "ts-node --esm src/v4/index.ts",
     "start": "node build/v4/index.js",
     "start:v3": "node build/index.js",
+    "check": "node build/v4/index.js --check",
     "test": "npm run build && node --test test/*.test.mjs",
     "smoke": "npm run build && node test/smoke.mjs",
     "lint": "eslint src/**/*.ts",
