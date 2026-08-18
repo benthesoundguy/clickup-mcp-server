@@ -72,23 +72,33 @@ const log = (msg: string) => {
  * .env" and "the server did not see your .env" can be told apart without reading the source.
  */
 function missingTokenMessage(): string {
-  const looked = envFileCandidates(import.meta.url)
+  const paths = envFileCandidates(import.meta.url)
     .map((p) => `      ${p}`)
     .join('\n');
   const suppressed =
-    process.env.MCP_NO_ENV_FILE === '1' || process.env.MCP_STRICT_ENV === '1'
-      ? '\n  NOTE: .env lookup is DISABLED here by MCP_STRICT_ENV/MCP_NO_ENV_FILE, so the token ' +
-        'must come from the environment.\n'
-      : '';
+    process.env.MCP_NO_ENV_FILE === '1' || process.env.MCP_STRICT_ENV === '1';
+
+  // Past tense only when the search actually happened. Telling someone the server "looked" in
+  // four places it was configured never to open sends them to check those files, and the one
+  // thing they need to know — that a variable switched the search off — is the thing the
+  // sentence hid. The paths stay useful either way; only the tense has to be honest.
+  const option2 = suppressed
+    ? '\n  2. A .env file — but NOT right now: lookup is switched off by ' +
+      'MCP_STRICT_ENV/MCP_NO_ENV_FILE,\n     so no file was opened. Unset that variable and the ' +
+      'server would read, in order:\n' + paths
+    : '\n  2. A .env file containing  CLICKUP_API_TOKEN=pk_...\n' +
+      '     The server looked for one here, in order:\n' + paths;
+
   return (
     'ClickUp MCP is not configured: CLICKUP_API_TOKEN is not set.\n' +
-    suppressed +
+    (suppressed
+      ? '\n  NOTE: .env lookup is DISABLED here by MCP_STRICT_ENV/MCP_NO_ENV_FILE, so the ' +
+        'token must come from the environment.\n'
+      : '') +
     '\nSet it in either place:\n' +
     '\n  1. Your MCP client config, which is usually easiest:\n' +
     '       "env": { "CLICKUP_API_TOKEN": "pk_..." }\n' +
-    '\n  2. A .env file containing  CLICKUP_API_TOKEN=pk_...\n' +
-    '     The server looked for one here, in order:\n' +
-    looked +
+    option2 +
     '\n\nGet a token from ClickUp → Settings → Apps → API Token. It starts with "pk_".\n' +
     'Then run the built server with --check to confirm it is picked up.'
   );

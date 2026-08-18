@@ -3,6 +3,11 @@
   "version": "4.3.0",
   "description": "A Model Context Protocol (MCP) server for ClickUp: 18 tools addressed by name rather than ID, with capability profiles that make it safe to hand to an untrusted agent",
   "main": "build/v4/index.js",
+  "files": [
+    "build",
+    "scripts",
+    "CHANGELOG.md"
+  ],
   "bin": {
     "clickup-mcp-server": "./build/v4/index.js",
     "clickup-mcp-server-v3": "./build/index.js",

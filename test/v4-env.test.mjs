@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { parseEnvFile, loadEnvFile, envFileCandidates } from '../build/v4/core/env.js';
+import { spawnSync } from 'node:child_process';
 
 let dir;
 before(async () => {
@@ -127,5 +128,45 @@ describe('search order', () => {
     const r = loadEnvFile({ cwd: join(dir, 'nope'), env: {}, moduleUrl: 'file:///nowhere/x/y/z.js' });
     assert.equal(r.source, null);
     assert.deepEqual(r.applied, []);
+  });
+});
+
+/**
+ * The `--check` diagnostic.
+ *
+ * Its own doc comment calls the missing-token message "the single most-read string in the
+ * project" — it is what a first-time install sees — and until now nothing exercised it. These
+ * spawn the built binary, because the value of the message is what a human reads on a terminal,
+ * not what a function returns.
+ *
+ * Only the suppressed branch is spawn-tested. The enabled branch cannot be staged here: the
+ * candidate list includes the install directory's parent, which in a source checkout is this
+ * repo's own project root, and that holds a real `.env`. Testing it would mean relocating the
+ * install, and a test that reaches the live API to prove a help string is the wrong trade.
+ */
+describe('--check diagnostic', () => {
+  const run = (env) =>
+    spawnSync(process.execPath, ['build/v4/index.js', '--check'], {
+      encoding: 'utf8',
+      env: { ...process.env, CLICKUP_API_TOKEN: '', ...env },
+    }).stdout;
+
+  for (const flag of ['MCP_NO_ENV_FILE', 'MCP_STRICT_ENV']) {
+    test(`HONESTY: with ${flag}=1 it does not claim to have looked anywhere`, () => {
+      // The bug this pins: the message announced that lookup was disabled and then, two lines
+      // later, said the server "looked for one here" and listed four paths it never opened.
+      // A reader sent to check those files never learns that a variable switched the search off.
+      const out = run({ [flag]: '1' });
+      assert.match(out, /CLICKUP_API_TOKEN is not set/);
+      assert.doesNotMatch(out, /looked for one here/);
+      assert.match(out, /no file was opened/);
+      // The paths still appear, because knowing where it *would* look is the useful part.
+      assert.match(out, /would read, in order/);
+    });
+  }
+
+  test('it never prints the token', () => {
+    const out = run({ MCP_NO_ENV_FILE: '1', CLICKUP_API_TOKEN: 'pk_supersecret_value_here' });
+    assert.doesNotMatch(out, /pk_supersecret_value_here/);
   });
 });
