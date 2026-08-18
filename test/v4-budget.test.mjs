@@ -109,9 +109,12 @@ describe('G1 — tool schema surface', () => {
 describe('G2 — response size', () => {
   const raw = JSON.parse(readFileSync(join(HERE, 'fixtures', 'tasks-100.json'), 'utf8'));
 
-  test('the fixture is the real thing', () => {
+  test('the fixture is a real API response, at full weight', () => {
     assert.equal(raw.tasks.length, 100);
-    // Confirms the baseline this is measured against is genuine, not a strawman.
+    // A genuine 100-task GET /list/{id}/task body, with workspace, user, list and task
+    // identifiers replaced by synthetic ones of the same shape and length. What this
+    // assertion protects is the *weight* — the saving claimed below is only meaningful
+    // against a real payload, so a hand-written strawman would quietly invalidate it.
     const rawTokens = tokens(JSON.stringify(raw).length);
     assert.ok(rawTokens > 35_000, `fixture is only ${rawTokens} tokens; expected ~${RAW_API_LIST_TOKENS}`);
   });
@@ -119,7 +122,7 @@ describe('G2 — response size', () => {
   test(`100 tasks render in under ${G2_MAX_LIST_TOKENS} tokens`, () => {
     const shaped = raw.tasks.map((t) => shapeTask(t, 'compact'));
     const table = renderTaskTable(shaped, {
-      header: 'agent_test/Folder/List — 100 matches',
+      header: 'Space/Folder/List — 100 matches',
       hideColumns: ['list'],
     });
     const t = tokens(table.length);
