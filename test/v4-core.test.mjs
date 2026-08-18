@@ -15,6 +15,8 @@ import { ClickUpToolError, fromApiError, unresolved, ambiguous, badValue } from 
 import { parseDate, parseDueWindow } from '../build/v4/core/dates.js';
 import { decodeEntities, rankCandidates, editDistance } from '../build/v4/core/text.js';
 import { shapeTask, renderTaskTable, renderTaskDetail, sanitizeCell } from '../build/v4/core/format.js';
+import { readFileSync } from 'node:fs';
+import { SERVER_VERSION } from '../build/v4/core/version.js';
 
 // --------------------------------------------------------------------------- fixtures
 
@@ -610,5 +612,23 @@ describe('status vocabulary', () => {
     const before = fetchImpl.calls.length;
     await resolver.listStatuses('901400000005');
     assert.ok(fetchImpl.calls.length > before, 'folderless lists are not in the index');
+  });
+});
+
+/**
+ * The version the server reports must be the version that was packaged.
+ *
+ * `SERVER_VERSION` is a hand-maintained constant and `package.json` is bumped separately, so
+ * nothing stopped them drifting. That matters more here than in most projects: `whoami` and
+ * `--check` print this string, and the documented first move when a fix appears not to have
+ * taken effect is to compare it against what you expect. A stale constant turns that
+ * diagnostic into a liar and sends people hunting for a host holding an old process.
+ */
+describe('version', () => {
+  test('SERVER_VERSION matches package.json', async () => {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    );
+    assert.equal(SERVER_VERSION, pkg.version);
   });
 });

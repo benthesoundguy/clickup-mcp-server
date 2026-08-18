@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.3.1 — 2026-08-18
+
+Two corrections raised from the infrastructure side after probing a live deployment.
+
+### Fixed
+
+- **The 401 advertised an OAuth discovery document the server did not serve.** Every
+  unauthenticated response carried `WWW-Authenticate: ... resource_metadata="…"`, pointing at
+  `/.well-known/oauth-protected-resource` — a path served only when an authorization server is
+  configured, and derived from the caller's own `Host` header when one was not. A
+  spec-compliant client that followed the pointer got a 404. Advertising a dead discovery path
+  is worse than advertising none: omitting the parameter reads as "no OAuth here" and the
+  client falls back to the bearer token it already has, while a pointer to a 404 turns a
+  working handshake into a broken one. The parameter and the route now derive from the same
+  object, so they cannot disagree. To serve it, set `MCP_OAUTH_ISSUER` + `MCP_PUBLIC_URL`.
+- **`move_to` described a limitation that no longer holds.** Its text said ClickUp's API
+  "cannot move a task between lists" and then, in the next sentence, named the setting that
+  makes it work. Moves are real when the "Tasks in Multiple Lists" ClickApp is enabled: status
+  is preserved and remapped to the destination, and subtasks follow their parent — verified
+  across 39 tasks against a live workspace. The wording now leads with that condition instead
+  of a false absolute, and records the ordering constraint it hides: a list inherits its
+  *space's* status set, so statuses must be aligned before moving across spaces or tasks
+  arrive on the destination's default open status. The read-back verification is unchanged —
+  with the ClickApp off ClickUp still returns 200 and silently does nothing, and the call
+  still fails loudly rather than reporting a move that never happened.
+
+### Unchanged, deliberately
+
+- The 3.x server still advertises `resource_metadata`. It has no authorization server to name
+  and serves no document, so the same criticism applies — but its `WWW-Authenticate` header is
+  what made the claude.ai connector work under Cloudflare Access, where Access's own 401 omits
+  it. Removing it there is a live-integration risk that wants a deliberate decision, not a
+  drive-by fix.
+
 ## 4.3.0 — 2026-08-15
 
 A ground-up rewrite. 88 tools that mirrored ClickUp's REST API become 18 organised around jobs,

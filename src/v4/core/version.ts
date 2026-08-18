@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-export const SERVER_VERSION = '4.3.0';
+export const SERVER_VERSION = '4.3.1';
 
 /** mtime of this module's own file, plus when the process started. */
 export function buildStamp(): string {

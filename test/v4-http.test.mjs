@@ -124,10 +124,17 @@ describe('v4 HTTP transport', () => {
     assert.equal(res.status, 404);
   });
 
-  test('no credentials → 401 with a discovery hint', async () => {
+  test('no credentials → 401 challenging for Bearer', async () => {
     const res = await post({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     assert.equal(res.status, 401);
-    assert.match(res.headers.get('www-authenticate') ?? '', /resource_metadata=/);
+    const wa = res.headers.get('www-authenticate') ?? '';
+    assert.match(wa, /^Bearer realm="clickup-mcp"/);
+    // This used to assert `resource_metadata=` was present here, which pinned a bug rather
+    // than a behaviour: this server has no authorization server configured and serves no
+    // document at that path, so the pointer led to a 404. The parameter now appears only when
+    // there is a document behind it — see the "no authorization server configured" block in
+    // v4-oauth.test.mjs, which owns this case.
+    assert.doesNotMatch(wa, /resource_metadata/);
   });
 
   test('a wrong bearer token → 401', async () => {

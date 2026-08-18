@@ -22,7 +22,7 @@ import {
   allTools,
 } from './server.js';
 import { toolsFor } from './tools/profiles.js';
-import { accessConfigFromEnv, authorize, publicOrigin } from './core/auth.js';
+import { accessConfigFromEnv, authorize } from './core/auth.js';
 import { parseProfile, describeProfile } from './core/policy.js';
 import { resolveSandbox } from './core/localfile.js';
 import { buildStamp } from './core/version.js';
@@ -391,11 +391,19 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
     const auth = await authorize(req, { authToken, allowTokenInPath, accessConfig, oauth });
     if (!auth.ok) {
       log(`401 ${req.method} ${path} from ${req.socket.remoteAddress} — ${auth.reason}`);
+      // Advertise `resource_metadata` only when the document is actually served.
+      //
+      // It used to be emitted unconditionally, falling back to a Host-derived origin, so a
+      // bearer-token or Cloudflare Access deployment pointed every spec-compliant client at a
+      // path that 404s. That is worse than staying quiet: omitting the parameter reads as
+      // "no OAuth discovery here" and the client falls back cleanly, while a dead pointer
+      // turns a working bearer handshake into a broken discovery one. The parameter and the
+      // route now derive from the same `oauth` object, so they cannot disagree again.
       res.writeHead(401, {
         'Content-Type': 'application/json',
-        'WWW-Authenticate': `Bearer realm="clickup-mcp", resource_metadata="${
-          oauth ? metadataUrl(oauth.resource) : `${publicOrigin(req)}/.well-known/oauth-protected-resource`
-        }"`,
+        'WWW-Authenticate': oauth
+          ? `Bearer realm="clickup-mcp", resource_metadata="${metadataUrl(oauth.resource)}"`
+          : 'Bearer realm="clickup-mcp"',
       });
       res.end(JSON.stringify({ error: 'unauthorized' }));
       return;

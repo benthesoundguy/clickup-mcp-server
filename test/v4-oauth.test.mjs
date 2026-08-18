@@ -311,3 +311,85 @@ describe('end to end over HTTP', () => {
     assert.equal(res.status, 200);
   });
 });
+
+/**
+ * The negative case: a server with no authorization server configured.
+ *
+ * This is the common deployment — a shared bearer token, or Cloudflare Access in front — and
+ * it used to advertise `resource_metadata` pointing at a path it served nothing at, deriving
+ * the origin from the caller's own Host header. Every spec-compliant client that followed the
+ * pointer got a 404.
+ *
+ * Advertising a dead discovery path is worse than advertising none: omitting the parameter
+ * reads as "no OAuth discovery here" and the client falls back to the bearer token it already
+ * has, whereas a pointer to a 404 turns a working handshake into a broken one. Found against
+ * the live deployment 2026-08-18 and reproduced here.
+ */
+describe('no authorization server configured', () => {
+  let proc, PORT;
+
+  before(async () => {
+    PORT = 23000 + Math.floor(Math.random() * 1500);
+    proc = spawn('node', ['build/v4/index.js'], {
+      env: {
+        ...process.env,
+        CLICKUP_API_TOKEN: 'pk_stub',
+        CLICKUP_API_BASE: CLICKUP_BASE,
+        CLICKUP_WORKSPACE_ID: '9001',
+        MCP_NO_ENV_FILE: '1',
+        MCP_TRANSPORT: 'http',
+        MCP_HTTP_PORT: String(PORT),
+        MCP_AUTH_TOKEN: 'a-shared-bearer-token-16plus',
+        MCP_OAUTH_ISSUER: '', // explicitly no AS
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('server did not start')), 15000);
+      proc.stdout.on('data', (d) => {
+        if (String(d).includes('ready')) { clearTimeout(t); resolve(); }
+      });
+      proc.on('exit', (c) => reject(new Error(`server exited ${c}`)));
+    });
+  });
+
+  after(() => proc?.kill());
+
+  const unauthenticated = () =>
+    fetch(`http://127.0.0.1:${PORT}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+
+  test('it still challenges with Bearer', async () => {
+    const res = await unauthenticated();
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('www-authenticate'), /^Bearer realm="clickup-mcp"/);
+  });
+
+  test('REGRESSION: it advertises no metadata document, because it serves none', async () => {
+    const res = await unauthenticated();
+    assert.doesNotMatch(res.headers.get('www-authenticate'), /resource_metadata/);
+  });
+
+  test('and the path it used to point at is indeed absent', async () => {
+    // Pinning the other half of the contradiction: had this served a document, keeping the
+    // pointer would have been the right fix instead.
+    const res = await fetch(`http://127.0.0.1:${PORT}/.well-known/oauth-protected-resource`);
+    assert.equal(res.status, 404);
+  });
+
+  test('a valid bearer token still authenticates', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        authorization: 'Bearer a-shared-bearer-token-16plus',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    assert.equal(res.status, 200);
+  });
+});

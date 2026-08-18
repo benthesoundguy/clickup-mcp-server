@@ -690,9 +690,10 @@ export const updateTool: ToolDef = {
       .string()
       .optional()
       .describe(
-        'Destination list. NOTE: ClickUp\'s API cannot move tasks unless the "Tasks in ' +
-          'Multiple Lists" ClickApp is enabled; the move is verified and the call fails ' +
-          'loudly if it did not take.',
+        'Destination list. Moves are real when the "Tasks in Multiple Lists" ClickApp is ' +
+          'enabled — status is preserved and remapped to the destination, and subtasks follow ' +
+          'their parent. With it off ClickUp returns 200 and silently does nothing, so every ' +
+          'move is verified by read-back and the call fails loudly if it did not take.',
       ),
     delete: z.boolean().optional().describe('Delete the tasks. Irreversible.'),
     remove_assignees: z.array(z.string()).optional().describe('Usernames to unassign'),
@@ -818,11 +819,13 @@ export const updateTool: ToolDef = {
           `${notMoved.length} task${notMoved.length === 1 ? ' was' : 's were'} NOT moved to ` +
           `${destPath}: ${notMoved.join(', ')}. Any other field changes in this call were applied.`,
         fix:
-          'ClickUp\'s public API cannot move a task between lists. The endpoint returns HTTP 200 ' +
-          'and silently does nothing. Either enable the "Tasks in Multiple Lists" ClickApp in ' +
-          'ClickUp settings (which makes this endpoint work), move the task in the ClickUp UI, ' +
-          'or recreate it in the destination and delete the original — noting that recreating ' +
-          'gives it a new ID and loses its comments and history.',
+          'ClickUp\'s move endpoint returns HTTP 200 whether or not it moved anything. It ' +
+          'performs a real move only when the "Tasks in Multiple Lists" ClickApp is enabled, so ' +
+          'enable it in ClickUp settings and retry — that is the usual cause. Note that a list ' +
+          'inherits its SPACE\'s status set, so align statuses before moving across spaces or ' +
+          'tasks arrive on the destination\'s default open status. Failing that, move the task ' +
+          'in the ClickUp UI, or recreate it in the destination and delete the original — ' +
+          'noting that recreating gives it a new ID and loses its comments and history.',
       });
     }
 
