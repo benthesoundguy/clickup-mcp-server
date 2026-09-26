@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/benthesoundguy/clickup-mcp-server}"
-VERSION="${VERSION:-v3.3.2}"     # pin a tag; a service should not drift on redeploy
+VERSION="${VERSION:-v3.4.1}"     # pin a tag; a service should not drift on redeploy
 INSTALL_DIR=/opt/clickup-mcp-server
 ENV_DIR=/etc/clickup-mcp
 ENV_FILE="$ENV_DIR/env"

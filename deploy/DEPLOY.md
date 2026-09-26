@@ -27,7 +27,7 @@ native dependencies.
 ## 2. Install
 
 ```bash
-git clone --branch v3.3.2 --depth 1 \
+git clone --branch v3.4.1 --depth 1 \
   https://github.com/benthesoundguy/clickup-mcp-server.git clickup-mcp
 bash clickup-mcp/deploy/setup-vps.sh
 ```
@@ -38,7 +38,7 @@ The script installs Node 22, checks out the pinned tag into
 health-checks `127.0.0.1:8000`. It prints the generated `MCP_AUTH_TOKEN` once —
 save it.
 
-Re-run it to upgrade: `VERSION=v3.4.0 bash deploy/setup-vps.sh`.
+Re-run it to upgrade: `VERSION=v3.4.1 bash deploy/setup-vps.sh`.
 
 **Doing it by hand?** The order matters:
 
@@ -157,14 +157,14 @@ regardless of what the edge does.
 ## 6. Updating
 
 ```bash
-sudo VERSION=v3.4.0 bash /opt/clickup-mcp-server/deploy/setup-vps.sh
+sudo VERSION=v3.4.1 bash /opt/clickup-mcp-server/deploy/setup-vps.sh
 ```
 
 Or by hand:
 
 ```bash
 cd /opt/clickup-mcp-server
-sudo git fetch --tags && sudo git checkout -f v3.4.0
+sudo git fetch --tags && sudo git checkout -f v3.4.1
 sudo npm ci && sudo npm prune --omit=dev
 sudo chown -R mcp:mcp . && sudo systemctl restart clickup-mcp
 ```
