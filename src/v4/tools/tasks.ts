@@ -612,6 +612,7 @@ export const createTool: ToolDef = {
     const created: ShapedTask[] = [];
     const failures: string[] = [];
     const fieldMisses: string[] = [];
+    const fieldUnverified: string[] = [];
     for (const [i, body] of bodies.entries()) {
       const parent = specs[i].parent;
       if (typeof parent === 'string' && parent.trim()) body.parent = parent.trim();
@@ -625,11 +626,21 @@ export const createTool: ToolDef = {
         if (wantedFields[i].length) {
           // The task exists either way; what must not happen is reporting fields that
           // didn't take. Check the created task, reading it back if the reply omitted them.
-          const cfs =
-            raw.custom_fields ??
-            (await ctx.http.get<RawTask>(`/task/${encodeURIComponent(raw.id ?? '')}`, `task ${raw.id}`))
-              .custom_fields ??
-            [];
+          // A failed read-back is its own note: this task was created, and listing it under
+          // FAILED would invite a retry that makes a duplicate.
+          let cfs = raw.custom_fields;
+          if (!cfs) {
+            try {
+              cfs = (
+                await ctx.http.get<RawTask>(`/task/${encodeURIComponent(raw.id ?? '')}`, `task ${raw.id}`)
+              ).custom_fields ?? [];
+            } catch (err) {
+              fieldUnverified.push(
+                `- ${raw.id} (${String(specs[i].name)}): ${err instanceof ClickUpToolError ? err.message : String(err)}`,
+              );
+              continue;
+            }
+          }
           const missing = wantedFields[i].filter((n) => {
             const f = cfs.find((c) => c.name.toLowerCase() === n.toLowerCase());
             return !f || f.value === undefined || f.value === null || f.value === '';
@@ -666,6 +677,13 @@ export const createTool: ToolDef = {
       notes.push(
         `FIELDS NOT SET on ${fieldMisses.length} created task${fieldMisses.length === 1 ? '' : 's'} ` +
           `(the tasks exist; these values did not take — set them with \`fields\`):\n${fieldMisses.join('\n')}`,
+      );
+    }
+
+    if (fieldUnverified.length) {
+      notes.push(
+        `FIELDS UNVERIFIED on ${fieldUnverified.length} created task${fieldUnverified.length === 1 ? '' : 's'} ` +
+          `(the tasks exist — do not re-create them; check their fields with \`task\`):\n${fieldUnverified.join('\n')}`,
       );
     }
 

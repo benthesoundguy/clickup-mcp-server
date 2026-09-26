@@ -58,6 +58,25 @@ describe('retries never replay a write that may have landed', () => {
     }
   });
 
+  test('an upload answered with 5xx says it may have applied', async () => {
+    let calls = 0;
+    const http = new ClickUpHttp({
+      token: 'pk',
+      clock: noSleep,
+      fetchImpl: async () => { calls++; return json({ err: 'Internal Server Error' }, 502); },
+    });
+    const form = new FormData();
+    form.append('attachment', new Blob(['x']), 'x.txt');
+    await assert.rejects(
+      () => http.upload('/task/abc/attachment', form),
+      (err) => {
+        assert.match(err.message, /may have applied/i);
+        return true;
+      },
+    );
+    assert.equal(calls, 1);
+  });
+
   test('a POST refused with 429 is still retried — ClickUp never processed it', async () => {
     let calls = 0;
     const http = new ClickUpHttp({
@@ -170,7 +189,7 @@ const FIELDS = [
   ] } },
 ];
 
-function stubWorld({ onCreate } = {}) {
+function stubWorld({ onCreate, onGetTask } = {}) {
   const creates = [];
   const fetchImpl = async (url, init = {}) => {
     const p = new URL(url).pathname.replace(/^\/api\/v[23]/, '');
@@ -196,6 +215,7 @@ function stubWorld({ onCreate } = {}) {
         custom_fields: FIELDS.map((f) => ({ ...f, value: values.get(f.id) })),
       });
     }
+    if (/^\/task\/\w+$/.test(p) && method === 'GET' && onGetTask) return onGetTask(p.split('/')[2]);
     return json({ err: `not stubbed: ${method} ${p}`, ECODE: 'TEST_000' }, 404);
   };
   return { ctx: buildContext({ token: 'pk', workspaceId: WS, profile: 'agent', fetchImpl }), creates };
@@ -245,6 +265,44 @@ describe('create with custom fields', () => {
     );
     assert.match(out, /FIELDS NOT SET/);
     assert.match(out, /86bbX.*held_by/);
+  });
+
+  // ClickUp's create reply can omit custom_fields; the tool then reads the task back.
+  const replyWithoutFields = (body) => json({
+    id: '86bbY', name: body.name, status: { status: 'to do' }, list: { id: '901', name: 'Findings' },
+  });
+
+  test('verifies by reading the task back when the create reply omits custom_fields', async () => {
+    const reads = [];
+    const { ctx } = stubWorld({
+      onCreate: replyWithoutFields,
+      onGetTask: (id) => {
+        reads.push(id);
+        return json({ id, custom_fields: [{ ...FIELDS[0], value: 'night-shift' }] });
+      },
+    });
+    const out = await createTool.handler(
+      { list: 'Cavalry/Findings', tasks: [{ name: 'Claimable', fields: { held_by: 'night-shift' } }] },
+      ctx,
+    );
+    assert.deepEqual(reads, ['86bbY']);
+    assert.match(out, /created 1\/1/);
+    assert.doesNotMatch(out, /FIELDS NOT SET|FIELDS UNVERIFIED|FAILED/);
+  });
+
+  test('a failed read-back never lists the created task as FAILED', async () => {
+    const { ctx } = stubWorld({
+      onCreate: replyWithoutFields,
+      onGetTask: () => json({ err: 'Internal Server Error' }, 500),
+    });
+    const out = await createTool.handler(
+      { list: 'Cavalry/Findings', tasks: [{ name: 'Claimable', fields: { held_by: 'night-shift' } }] },
+      ctx,
+    );
+    assert.match(out, /created 1\/1/);
+    assert.doesNotMatch(out, /FAILED/, 'an agent reading FAILED re-creates the task — a duplicate');
+    assert.match(out, /FIELDS UNVERIFIED[\s\S]*86bbY/);
+    assert.match(out, /do not re-create/);
   });
 
   test('unknown keys on a task entry are refused, not silently dropped', () => {
