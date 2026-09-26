@@ -153,6 +153,7 @@ export class ClickUpHttp {
       } catch {
         /* leave as text */
       }
+      if (res.status >= 500) throw mayHaveLanded(res.status, ctx);
       if (!res.ok) throw fromApiError(res.status, parsed, ctx);
       return parsed as T;
     } catch (err) {
@@ -196,7 +197,14 @@ export class ClickUpHttp {
       this.absorbHeaders(res.headers);
       this.requestCount++;
 
-      if (res.status === 429 || (res.status >= 500 && res.status !== 501)) {
+      // A 429 means ClickUp refused the request unprocessed, so any method may retry it. A
+      // 5xx does not: ClickUp can commit a write and then fail to answer, so replaying a POST
+      // creates a second task or posts a second comment while the tool reports one. Only
+      // idempotent methods retry on 5xx; a POST surfaces an error that says it may have landed.
+      const retryable =
+        res.status === 429 ||
+        (res.status >= 500 && res.status !== 501 && IDEMPOTENT_METHODS.has(method));
+      if (retryable) {
         // 5xx from ClickUp is frequently a *bad parameter*, not an outage, so retrying is
         // often pointless — but a genuine blip is indistinguishable from here. Retry a
         // bounded number of times, then surface the teaching error.
@@ -213,6 +221,7 @@ export class ClickUpHttp {
       }
 
       if (!res.ok) {
+        if (res.status >= 500 && !IDEMPOTENT_METHODS.has(method)) throw mayHaveLanded(res.status, ctx);
         throw fromApiError(res.status, res.body, ctx);
       }
       return res.body as T;
@@ -300,6 +309,7 @@ export class ClickUpHttp {
       return { status: res.status, ok: res.ok, headers: res.headers, body: parsed };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
+        if (!IDEMPOTENT_METHODS.has(ctx.method)) throw mayHaveLanded(null, ctx);
         throw new ClickUpToolError({
           what: `ClickUp did not respond within ${Math.round(this.timeoutMs / 1000)}s.`,
           fix: 'Retry once. If it persists, narrow the query — very large lists can time out.',
@@ -315,6 +325,24 @@ export class ClickUpHttp {
       clearTimeout(timer);
     }
   }
+}
+
+/** Methods whose replay cannot duplicate anything, so a 5xx is safe to retry. */
+const IDEMPOTENT_METHODS = new Set(['GET', 'PUT', 'DELETE']);
+
+/**
+ * A write that failed without a clean refusal. ClickUp may have committed it, so neither
+ * "failed" nor "retry" is a safe thing to tell the caller: both can end in a duplicate.
+ */
+function mayHaveLanded(status: number | null, ctx: RequestContext): ClickUpToolError {
+  const how = status === null ? 'did not answer in time' : `answered HTTP ${status}`;
+  return new ClickUpToolError({
+    what: `ClickUp ${how} to a write, and may have applied it anyway.`,
+    fix:
+      'Do not retry blindly — that can create a duplicate. Check whether it took first ' +
+      '(`find` or `task` for a created task, `comment` to read the thread), then retry only if it is missing.',
+    origin: `${status === null ? 'timeout' : `ClickUp ${status}`} on ${ctx.method} ${ctx.path}`,
+  });
 }
 
 interface RawResponse {

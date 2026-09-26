@@ -244,37 +244,8 @@ export const fieldsTool: ToolDef = {
       });
     }
 
-    const fields = await listFields(ctx, listId);
-    const hit = fields.find((f) => f.name.toLowerCase() === fieldName.toLowerCase());
-    if (!hit) {
-      throw unresolved('custom field', fieldName, fields.map((f) => f.name));
-    }
-
     const raw = String(args.value ?? '');
-    let value: unknown = raw;
-
-    if (hit.type === 'drop_down') {
-      const opts = hit.type_config?.options ?? [];
-      const opt = opts.find(
-        (o) => (o.label ?? o.name ?? '').toLowerCase() === raw.trim().toLowerCase(),
-      );
-      if (!opt) {
-        throw badValue(
-          `option for field "${hit.name}"`,
-          raw,
-          opts.map((o) => o.label ?? o.name ?? '').filter(Boolean),
-        );
-      }
-      value = opt.id ?? opt.orderindex;
-    } else if (hit.type === 'number' || hit.type === 'currency') {
-      const n = Number(raw);
-      if (!Number.isFinite(n)) throw badValue(`value for "${hit.name}"`, raw, ['a number']);
-      value = n;
-    } else if (hit.type === 'checkbox') {
-      value = /^(true|yes|1|checked)$/i.test(raw.trim());
-    } else if (hit.type === 'date') {
-      value = parseDate(raw, ctx.now()).ms;
-    }
+    const { field: hit, value } = await resolveFieldValue(ctx, listId, fieldName, raw);
 
     await ctx.http.post(
       `/task/${encodeURIComponent(taskId)}/field/${hit.id}`,
@@ -284,6 +255,50 @@ export const fieldsTool: ToolDef = {
     return `set ${hit.name} = ${raw} on ${taskId}`;
   },
 };
+
+/**
+ * Resolve a custom field by name on a list, and turn a human value into what ClickUp stores:
+ * a drop-down label into its option ID, a number string into a number, a date into ms.
+ * Shared by `fields` (set on an existing task) and `create` (set at birth), so both accept
+ * exactly the same input and reject it with the same candidates.
+ */
+export async function resolveFieldValue(
+  ctx: Ctx,
+  listId: string,
+  fieldName: string,
+  raw: string,
+): Promise<{ field: RawCustomField; value: unknown }> {
+  const fields = await listFields(ctx, listId);
+  const hit = fields.find((f) => f.name.toLowerCase() === fieldName.trim().toLowerCase());
+  if (!hit) {
+    throw unresolved('custom field', fieldName, fields.map((f) => f.name));
+  }
+
+  let value: unknown = raw;
+  if (hit.type === 'drop_down') {
+    const opts = hit.type_config?.options ?? [];
+    const opt = opts.find(
+      (o) => (o.label ?? o.name ?? '').toLowerCase() === raw.trim().toLowerCase(),
+    );
+    if (!opt) {
+      throw badValue(
+        `option for field "${hit.name}"`,
+        raw,
+        opts.map((o) => o.label ?? o.name ?? '').filter(Boolean),
+      );
+    }
+    value = opt.id ?? opt.orderindex;
+  } else if (hit.type === 'number' || hit.type === 'currency') {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw badValue(`value for "${hit.name}"`, raw, ['a number']);
+    value = n;
+  } else if (hit.type === 'checkbox') {
+    value = /^(true|yes|1|checked)$/i.test(raw.trim());
+  } else if (hit.type === 'date') {
+    value = parseDate(raw, ctx.now()).ms;
+  }
+  return { field: hit, value };
+}
 
 async function listFields(ctx: Ctx, listId: string): Promise<RawCustomField[]> {
   return ctx.cache.remember(`fields:${listId}`, async () => {
@@ -310,15 +325,40 @@ export const docsTool: ToolDef = {
     if (action === 'read') {
       const id = String(args.id ?? '').trim();
       if (!id) throw new ClickUpToolError({ what: 'No doc ID given.', fix: 'Pass id from `docs` search.' });
-      const pages = await ctx.http.get<{ pages?: DocPage[] }>(
-        `/workspaces/${ctx.workspaceId}/docs/${encodeURIComponent(id)}/pages`,
+      const res = await ctx.http.get<unknown>(
+        `/workspaces/${ctx.workspaceId}/docs/${encodeURIComponent(id)}/pages` +
+          qs({ max_page_depth: -1, content_format: 'text/md' }),
         `doc ${id}`,
         'v3',
       );
-      const list = pages.pages ?? [];
-      if (!list.length) return `doc ${id}: no pages`;
-      return list
-        .map((p) => `## ${p.name ?? '(untitled)'}\n${truncate(p.content ?? '', 6000)}`)
+      // ClickUp answers with a bare array of pages, each carrying its sub-pages in `pages`.
+      // Reading `res.pages` off that array reported every doc as empty. Anything that is
+      // neither shape is an error, not "no pages".
+      const top = Array.isArray(res)
+        ? (res as DocPage[])
+        : Array.isArray((res as { pages?: unknown } | null)?.pages)
+          ? ((res as { pages: DocPage[] }).pages)
+          : null;
+      if (!top) {
+        throw new ClickUpToolError({
+          what: `ClickUp returned doc ${id}'s pages in a shape this server does not recognise.`,
+          fix: 'Reading it as empty would be wrong. Open the doc in ClickUp, and report this response shape.',
+        });
+      }
+      const flat: { page: DocPage; depth: number }[] = [];
+      const walk = (ps: DocPage[], depth: number) => {
+        for (const p of ps) {
+          flat.push({ page: p, depth });
+          if (Array.isArray(p.pages)) walk(p.pages, depth + 1);
+        }
+      };
+      walk(top, 0);
+      if (!flat.length) return `doc ${id}: no pages`;
+      return flat
+        .map(({ page, depth }) => {
+          const heading = `${'#'.repeat(Math.min(depth + 2, 6))} ${page.name || '(untitled)'}`;
+          return `${heading}\n${page.content ? truncate(page.content, 6000) : '(empty page)'}`;
+        })
         .join('\n\n');
     }
 
@@ -344,8 +384,9 @@ interface DocMeta {
   name?: string;
 }
 interface DocPage {
-  name?: string;
+  name?: string | null;
   content?: string;
+  pages?: DocPage[];
 }
 
 export const extraTools: ToolDef[] = [commentTool, timeTool, fieldsTool, docsTool];

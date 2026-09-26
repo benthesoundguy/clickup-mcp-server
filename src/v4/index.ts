@@ -58,6 +58,13 @@ function oneLine(msg: string): string {
   );
 }
 
+/**
+ * The request path as it may be written to the log. The claude.ai connector authenticates
+ * with the bearer token *in the path* (`/mcp/<token>`), so logging the raw path wrote the
+ * credential into the journal on every request — and into the 401 line for a near-miss.
+ */
+const loggablePath = (p: string) => p.replace(/^\/mcp\/[^/]+/, '/mcp/<redacted>');
+
 const log = (msg: string) => {
   const line = `[clickup-v4] ${oneLine(msg)}\n`;
   if (httpMode) process.stdout.write(line);
@@ -390,7 +397,7 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
 
     const auth = await authorize(req, { authToken, allowTokenInPath, accessConfig, oauth });
     if (!auth.ok) {
-      log(`401 ${req.method} ${path} from ${req.socket.remoteAddress} — ${auth.reason}`);
+      log(`401 ${req.method} ${loggablePath(path)} from ${req.socket.remoteAddress} — ${auth.reason}`);
       // Advertise `resource_metadata` only when the document is actually served.
       //
       // It used to be emitted unconditionally, falling back to a Host-derived origin, so a
@@ -408,7 +415,7 @@ async function runHttp(ctx: ReturnType<typeof buildContext>): Promise<void> {
       res.end(JSON.stringify({ error: 'unauthorized' }));
       return;
     }
-    log(`${req.method} ${path} authorized via ${auth.via}${auth.subject ? ` (${auth.subject})` : ''}`);
+    log(`${req.method} ${loggablePath(path)} authorized via ${auth.via}${auth.subject ? ` (${auth.subject})` : ''}`);
 
     try {
       // Stateless: a fresh protocol object per request, but the *shared* context — so the

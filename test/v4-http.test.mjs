@@ -200,3 +200,54 @@ describe('v4 HTTP transport', () => {
     assert.equal(a, b, `request count grew from ${a} to ${b} — the context is not being shared`);
   });
 });
+
+describe('v4 path-token auth (the claude.ai connector form)', () => {
+  let child;
+  let logs = '';
+  let ptPort;
+
+  before(async () => {
+    ptPort = 19800 + Math.floor(Math.random() * 190);
+    child = spawn('node', ['build/v4/index.js'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        CLICKUP_API_TOKEN: 'pk_stub',
+        CLICKUP_API_BASE: `http://127.0.0.1:${clickupPort}/api`,
+        MCP_TRANSPORT: 'http',
+        MCP_HTTP_PORT: String(ptPort),
+        MCP_HTTP_HOST: '127.0.0.1',
+        MCP_AUTH_TOKEN: AUTH_TOKEN,
+        MCP_ALLOW_TOKEN_IN_PATH: '1',
+      },
+    });
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`never ready:\n${logs}`)), 15000);
+      const on = (d) => {
+        logs += d.toString();
+        if (/\] ready\b/.test(logs)) { clearTimeout(timer); resolve(); }
+      };
+      child.stdout.on('data', on);
+      child.stderr.on('data', on);
+    });
+  });
+
+  after(() => child?.kill());
+
+  const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '1' } } };
+  const postTo = (path) => fetch(`http://127.0.0.1:${ptPort}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify(init),
+  });
+
+  test('authenticates, and the token in the path never reaches the log', async () => {
+    assert.equal((await postTo(`/mcp/${AUTH_TOKEN}`)).status, 200);
+    assert.equal((await postTo('/mcp/a-near-miss-token-that-is-wrong-000')).status, 401);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.match(logs, /POST \/mcp\/<redacted> authorized via bearer/);
+    assert.match(logs, /401 POST \/mcp\/<redacted> from/);
+    assert.ok(!logs.includes(AUTH_TOKEN), 'the credential was written to the journal on every request');
+    assert.ok(!logs.includes('a-near-miss-token'), 'a near-miss token must not be logged either');
+  });
+});

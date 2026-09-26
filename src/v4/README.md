@@ -39,7 +39,8 @@ Matching is segment-exact, never prefix-based, because ClickUp distinguishes
 by one trailing segment.
 
 Things that are additive but still excluded from `agent`, deliberately: attaching a tag,
-setting a custom field and adding a dependency all mutate an *existing* task; creating a
+setting a custom field and adding a dependency all mutate an *existing* task (fields set on a
+task as `create` makes it are additive, so that is allowed); creating a
 webhook starts streaming your data to an external endpoint. Append-only and safe are not the
 same property.
 
@@ -110,7 +111,7 @@ So v4:
 |---|---|
 | `find` | Query tasks anywhere. Scope/status/assignee/tags/due, all by name. |
 | `task` | One task in full, optional comments and subtasks. |
-| `create` | Create task(s) — pass an array for bulk. |
+| `create` | Create task(s) — pass an array for bulk; `fields` sets custom fields by name. |
 | `update` | Update/move/assign/close/delete — pass several IDs for bulk. |
 | `comment` | Read or post comments. |
 | `tree` | Workspace structure with the exact paths other tools accept. |

@@ -11,6 +11,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PORT = 39555;
 const AUTH = 'unit-test-secret-token-42';
 let proc;
+let logged = '';
 
 before(async () => {
   proc = spawn('node', [resolve(here, '../build/index.js')], {
@@ -26,6 +27,7 @@ before(async () => {
     });
     proc.on('exit', (code) => rej(new Error('server exited early: ' + code)));
   });
+  proc.stdout.on('data', (d) => { logged += String(d); });
 });
 
 after(() => proc?.kill());
@@ -78,6 +80,13 @@ test('initialize succeeds with path token', async () => {
   assert.equal(res.status, 200);
   const j = await parseStreamable(res);
   assert.equal(j.result.serverInfo.name, 'clickup-mcp-server');
+});
+
+test('the path token never reaches the log', async () => {
+  await new Promise((r) => setTimeout(r, 100));
+  assert.ok(logged.includes('/mcp/<redacted> authorized via'), 'the authorized path-token request is still logged');
+  assert.ok(!logged.includes(AUTH), 'the credential was written to the journal on every request');
+  assert.ok(!logged.includes('definitely-not-the-token00'), 'a near-miss token must not be logged either');
 });
 
 test('tools/list works with bearer token — 88 tools', async () => {

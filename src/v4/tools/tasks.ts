@@ -18,6 +18,7 @@ import {
   type ShapedTask,
 } from '../core/format.js';
 import { looksLikeTaskId } from '../core/resolve.js';
+import { resolveFieldValue } from './extras.js';
 import { decodeEntities, rankCandidates } from '../core/text.js';
 
 const PAGE_SIZE = 100;
@@ -540,7 +541,20 @@ export const createTool: ToolDef = {
   schema: {
     list: z.string().describe('List name, "Space/Folder/List" path, or ID'),
     tasks: z
-      .array(z.object({ ...taskSpecShape, parent: z.string().optional() }).passthrough())
+      .array(
+        // Strict: an unrecognised key is refused, not silently dropped — a dropped
+        // `custom_fields` once reported "created 1/1" with none of its values set.
+        z
+          .object({
+            ...taskSpecShape,
+            parent: z.string().optional(),
+            fields: z
+              .record(z.string())
+              .optional()
+              .describe('Custom fields by name, e.g. {"held_by":"night-shift"}'),
+          })
+          .strict(),
+      )
       .describe('One entry per task. `name` is required on each.'),
   },
   async handler(args, ctx) {
@@ -564,7 +578,23 @@ export const createTool: ToolDef = {
     // Validate every spec *before* writing any of them, so a bad entry at index 3 doesn't
     // leave three tasks already created.
     const bodies: Record<string, unknown>[] = [];
-    for (const s of specs) bodies.push(await buildTaskBody(ctx, s, listRef.id, true));
+    const wantedFields: string[][] = [];
+    for (const s of specs) {
+      const body = await buildTaskBody(ctx, s, listRef.id, true);
+      const names: string[] = [];
+      if (s.fields && typeof s.fields === 'object') {
+        const cf: { id: string; value: unknown }[] = [];
+        for (const [name, raw] of Object.entries(s.fields as Record<string, unknown>)) {
+          const { field, value } = await resolveFieldValue(ctx, listRef.id, name, String(raw ?? ''));
+          cf.push({ id: field.id, value });
+          // An unchecked checkbox reads back as no value at all, so it can't be verified.
+          if (value !== false) names.push(field.name);
+        }
+        if (cf.length) body.custom_fields = cf;
+      }
+      bodies.push(body);
+      wantedFields.push(names);
+    }
 
     // Work out which tags are about to be conjured into existence, before anything is written.
     const requestedTags = new Set<string>();
@@ -581,6 +611,7 @@ export const createTool: ToolDef = {
 
     const created: ShapedTask[] = [];
     const failures: string[] = [];
+    const fieldMisses: string[] = [];
     for (const [i, body] of bodies.entries()) {
       const parent = specs[i].parent;
       if (typeof parent === 'string' && parent.trim()) body.parent = parent.trim();
@@ -591,6 +622,22 @@ export const createTool: ToolDef = {
           `list ${listRef.path}`,
         );
         created.push(shapeTask(raw, 'compact'));
+        if (wantedFields[i].length) {
+          // The task exists either way; what must not happen is reporting fields that
+          // didn't take. Check the created task, reading it back if the reply omitted them.
+          const cfs =
+            raw.custom_fields ??
+            (await ctx.http.get<RawTask>(`/task/${encodeURIComponent(raw.id ?? '')}`, `task ${raw.id}`))
+              .custom_fields ??
+            [];
+          const missing = wantedFields[i].filter((n) => {
+            const f = cfs.find((c) => c.name.toLowerCase() === n.toLowerCase());
+            return !f || f.value === undefined || f.value === null || f.value === '';
+          });
+          if (missing.length) {
+            fieldMisses.push(`- ${raw.id} (${String(specs[i].name)}): ${missing.join(', ')}`);
+          }
+        }
       } catch (err) {
         // A capability refusal applies to the whole call, not to this one item.
         if (isPolicyDenial(err)) throw err;
@@ -615,6 +662,12 @@ export const createTool: ToolDef = {
       );
     }
     if (failures.length) notes.push(`FAILED ${failures.length}:\n${failures.join('\n')}`);
+    if (fieldMisses.length) {
+      notes.push(
+        `FIELDS NOT SET on ${fieldMisses.length} created task${fieldMisses.length === 1 ? '' : 's'} ` +
+          `(the tasks exist; these values did not take — set them with \`fields\`):\n${fieldMisses.join('\n')}`,
+      );
+    }
 
     return notes.length ? `${table}\n\n${notes.join('\n\n')}` : table;
   },

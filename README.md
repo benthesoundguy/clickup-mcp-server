@@ -113,7 +113,7 @@ Schema cost is what the tool definitions consume in the model's context on **eve
 
 Layers 1 and 2 depend on every tool being tagged correctly by every future contributor. Layer 3 does not: it inspects the actual request on its way out, so a mistagged tool, a refactor, or an endpoint added next year cannot widen a profile. The test suite proves this by calling `core`-only handlers *directly* with an `agent` context — bypassing layers 1 and 2 entirely — and asserting nothing reaches the wire.
 
-Things that look additive but are excluded from `agent` on purpose: attaching a tag, setting a custom field, and adding a dependency all mutate an *existing* task; creating a webhook starts streaming your data to an external endpoint. **Append-only and safe are not the same property.**
+Things that look additive but are excluded from `agent` on purpose: attaching a tag, setting a custom field, and adding a dependency all mutate an *existing* task (setting fields on a task as it is *created* is additive, so `create` may); creating a webhook starts streaming your data to an external endpoint. **Append-only and safe are not the same property.**
 
 ### Why the default is `core` and not `full`
 
@@ -143,7 +143,7 @@ A misconfigured root is fatal at startup rather than ignored — a boundary that
 | `fields` | read | Inspect a list's custom fields, or set one by name. |
 | `chat` | read | `channels` · `read` · `post` · `members` |
 | `checklist` | read | `list` · `add` · `add_item` · `rename` · `remove` · `check` · `uncheck` |
-| `create` | agent | Create one or more tasks — pass an array for bulk. |
+| `create` | agent | Create one or more tasks — pass an array for bulk. Custom fields can be set by name at creation. |
 | `attach` | agent | Upload a local file to a task (max 25MB). See above. |
 | `update` | core | Update, move, assign, close, or delete — pass several IDs for bulk. |
 | `lists` | core | `create` · `rename` · `delete` for lists and folders. Deletes need `confirm: true`. |

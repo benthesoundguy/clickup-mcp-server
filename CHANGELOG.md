@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+Found by driving v4 end to end — the real binary over streamable HTTP, a real MCP client — against
+a stateful ClickUp stub modelled on a live PM board, and by checking one response shape against the
+live API.
+
+### Fixed
+
+- **A write could land twice while reporting once.** v4 retried every 5xx regardless of method.
+  ClickUp can commit a write and then fail to answer, so a replayed POST made a second task, or
+  posted a second comment, while the tool said `created 1/1`. Reproduced: one `create` call, two
+  tasks. POSTs now retry only on 429 (refused unprocessed); a 5xx or timeout on a POST fails once
+  with an error that says it may have applied and to check before retrying. GET, PUT and DELETE
+  still retry. 3.x already excluded POST from 500-retries.
+- **`docs read` reported every doc as "no pages".** ClickUp answers with a bare array of pages;
+  the tool read `.pages` off it and found nothing. Confirmed against the live API. It now reads
+  the array, walks sub-pages (`max_page_depth=-1`), asks for markdown, and treats an unrecognised
+  shape as an error rather than an empty doc.
+- **`create` dropped `custom_fields` and reported success.** Task entries were `.passthrough()`,
+  so any unknown key was accepted and ignored. Entries are now strict — an unknown key is a
+  validation error — and `create` takes `fields: {"held_by": "night-shift"}`, resolved by name
+  exactly as the `fields` tool resolves them (drop-down labels, numbers, dates). Each value is
+  checked on the created task and any that did not take are reported. Setting fields on a task as
+  it is created is additive, so this is available under `agent`.
+- **The bearer token was written to the log** (3.x and 4.x). With `MCP_ALLOW_TOKEN_IN_PATH=1` —
+  the claude.ai connector's `/mcp/<token>` form — every authorized request logged its full path,
+  credential included, and a 401 logged a near-miss token. Paths are now logged as
+  `/mcp/<redacted>`. **If the connector uses the path form, rotate `MCP_AUTH_TOKEN`**: existing
+  journals hold it.
+
 ## 4.3.1 — 2026-08-18
 
 Two corrections raised from the infrastructure side after probing a live deployment.

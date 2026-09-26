@@ -76,6 +76,13 @@ function oneLine(msg: string): string {
     `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
 }
 
+/**
+ * The request path as it may be written to the log. The claude.ai connector authenticates
+ * with the bearer token *in the path* (`/mcp/<token>`), so logging the raw path wrote the
+ * credential into the journal on every request — and into the 401 line for a near-miss.
+ */
+const loggablePath = (p: string) => p.replace(/^\/mcp\/[^/]+/, '/mcp/<redacted>');
+
 const log = (msg: string) => {
   const line = oneLine(msg) + '\n';
   if (httpMode) process.stdout.write(line);
@@ -280,7 +287,7 @@ async function runHttp(host: string, port: number, authToken: string) {
 
     const auth = await authorize(req, authToken);
     if (!auth.ok) {
-      log(`[HTTP] 401 ${req.method} ${urlPath} from ${req.socket.remoteAddress} — ${auth.reason}`);
+      log(`[HTTP] 401 ${req.method} ${loggablePath(urlPath)} from ${req.socket.remoteAddress} — ${auth.reason}`);
       res.writeHead(401, {
         'Content-Type': 'application/json',
         // RFC 9728: point unauthenticated MCP clients at resource metadata.
@@ -291,7 +298,7 @@ async function runHttp(host: string, port: number, authToken: string) {
       res.end(JSON.stringify({ error: 'unauthorized' }));
       return;
     }
-    log(`[HTTP] ${req.method} ${urlPath} authorized via ${auth.via}${auth.subject ? ` (${auth.subject})` : ''}`);
+    log(`[HTTP] ${req.method} ${loggablePath(urlPath)} authorized via ${auth.via}${auth.subject ? ` (${auth.subject})` : ''}`);
 
     try {
       // Stateless mode: fresh server+transport per request. No session state
