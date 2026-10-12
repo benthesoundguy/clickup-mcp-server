@@ -215,7 +215,7 @@ export function renderTaskDetail(t: ShapedTask, extras: Record<string, string> =
 
   if (t.description) {
     lines.push('---');
-    lines.push(truncate(t.description, 4000));
+    lines.push(t.description);
   }
   return lines.join('\n');
 }

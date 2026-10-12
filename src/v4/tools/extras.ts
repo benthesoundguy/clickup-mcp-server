@@ -20,6 +20,8 @@ export const commentTool: ToolDef = {
     text: z.string().optional().describe('Comment to post. Omit to read existing comments.'),
     assign_to: z.string().optional().describe('Assign the comment to a user, by name'),
     limit: z.number().optional().describe('Max comments to read, default 30'),
+    start: z.number().optional().describe('Pagination timestamp from next page cursor'),
+    start_id: z.string().optional().describe('Pagination comment ID from next page cursor'),
   },
   async handler(args, ctx) {
     const task = String(args.task ?? '').trim();
@@ -40,7 +42,7 @@ export const commentTool: ToolDef = {
 
     const limit = Math.min(Math.max(Number(args.limit ?? 30), 1), 100);
     const res = await ctx.http.get<{ comments?: RawComment[] }>(
-      `/task/${encodeURIComponent(task)}/comment`,
+      `/task/${encodeURIComponent(task)}/comment${qs({ start: args.start, start_id: args.start_id })}`,
       `task ${task}`,
     );
     const all = res.comments ?? [];
@@ -49,9 +51,10 @@ export const commentTool: ToolDef = {
     const lines = shown.map((c) => {
       const who = c.user?.username ?? 'unknown';
       const when = c.date ? new Date(Number(c.date)).toISOString().slice(0, 16).replace('T', ' ') : '';
-      return `- ${who} ${when}: ${truncate((c.comment_text ?? '').replace(/\s+/g, ' ').trim(), 600)}`;
+      return `- ${who} ${when} [${c.id ?? 'unknown'}]: ${(c.comment_text ?? '').trim()}`;
     });
-    const more = all.length > shown.length ? `\n… ${all.length - shown.length} older` : '';
+    const last = shown[shown.length - 1];
+    const more = last?.id && last.date ? `\nFor older comments call comment with start: ${last.date}, start_id: "${last.id}" (continue until no comments).` : '';
     return `task ${task} — ${all.length} comment${all.length === 1 ? '' : 's'}:\n${lines.join('\n')}${more}`;
   },
 };

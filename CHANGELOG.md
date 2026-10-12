@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Task details and comment reads retain full descriptions and multiline comment text
+  instead of clipping them at 4000, 400 or 600 characters. The global response cap remains.
+- Comment reads accept `start`/`start_id` pagination and expose comment IDs and the
+  next-page cursor so older comments can be retrieved.
+- Added regression coverage for long descriptions, multiline comments and pagination.
+
 ## 4.3.1 — 2026-08-18
 
 Two corrections raised from the infrastructure side after probing a live deployment.

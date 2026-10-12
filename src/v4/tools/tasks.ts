@@ -13,7 +13,6 @@ import {
   renderTaskDetail,
   renderTaskTable,
   shapeTask,
-  truncate,
   type RawTask,
   type ShapedTask,
 } from '../core/format.js';
@@ -433,11 +432,13 @@ async function commentBlock(ctx: Ctx, taskId: string): Promise<string> {
   const lines = list.slice(0, 30).map((c) => {
     const who = c.user?.username ?? 'unknown';
     const when = c.date ? new Date(Number(c.date)).toISOString().slice(0, 10) : '';
-    const body = (c.comment_text ?? '').replace(/\s+/g, ' ').trim();
-    return `- ${who} ${when}: ${truncate(body, 400)}`;
+    const body = (c.comment_text ?? '').trim();
+    return `- ${who} ${when} [${c.id ?? 'unknown'}]: ${body}`;
   });
   const more = list.length > lines.length ? `\n… ${list.length - lines.length} older comments` : '';
-  return `\ncomments (${list.length}):\n${lines.join('\n')}${more}`;
+  const last = list[Math.min(list.length, 30) - 1];
+  const cursor = last?.id && last.date ? `\nFor older comments call comment with task: "${taskId}", start: ${last.date}, start_id: "${last.id}" until no comments.` : '';
+  return `\ncomments (${list.length}):\n${lines.join('\n')}${more}${cursor}`;
 }
 
 interface RawComment {
